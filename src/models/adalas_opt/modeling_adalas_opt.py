@@ -1,19 +1,61 @@
+import random
 from typing import Optional, List, Union, Tuple
 
 from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.opt import OPTPreTrainedModel
-from transformers.models.opt.modeling_opt import OPTDecoder, OPTForCausalLM, OPTModel
+from transformers.models.opt.modeling_opt import OPTDecoder, OPTForCausalLM, OPTModel, OPTDecoderLayer, \
+    OPTLearnedPositionalEmbedding
 from transformers.utils import logging
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig
 import torch
+from torch import nn
+
+from src.models.adalas_opt.modelling_adalas_opt_modules import AdalasOPTDecoderLayer
+
 logger = logging.get_logger(__name__)
 
 
 class AdalasOPTDecoder(OPTDecoder):
 
     def __init__(self, config: AdalasOPTConfig):
-        super().__init__(config)
+        super(OPTDecoder, self).__init__(config)
+        self.dropout = config.dropout
+        self.layerdrop = config.layerdrop
+        self.padding_idx = config.pad_token_id
+        self.max_target_positions = config.max_position_embeddings
+        self.vocab_size = config.vocab_size
+
+        self.embed_tokens = nn.Embedding(config.vocab_size, config.word_embed_proj_dim, self.padding_idx)
+        self.embed_positions = OPTLearnedPositionalEmbedding(config.max_position_embeddings, config.hidden_size)
+
+        if config.word_embed_proj_dim != config.hidden_size:
+            self.project_out = nn.Linear(config.hidden_size, config.word_embed_proj_dim, bias=False)
+        else:
+            self.project_out = None
+
+        if config.word_embed_proj_dim != config.hidden_size:
+            self.project_in = nn.Linear(config.word_embed_proj_dim, config.hidden_size, bias=False)
+        else:
+            self.project_in = None
+
+        # Note that the only purpose of `config._remove_final_layer_norm` is to keep backward compatibility
+        # with checkpoints that have been fine-tuned before transformers v4.20.1
+        # see https://github.com/facebookresearch/metaseq/pull/164
+        if config.do_layer_norm_before and not config._remove_final_layer_norm:
+            self.final_layer_norm = nn.LayerNorm(
+                config.hidden_size, elementwise_affine=config.layer_norm_elementwise_affine
+            )
+        else:
+            self.final_layer_norm = None
+
+        self.layers = nn.ModuleList([AdalasOPTDecoderLayer(config) for _ in range(config.num_hidden_layers)])
+
+        self.gradient_checkpointing = False
+        # Initialize weights and apply final processing
+        self.post_init()
+
+
 
     def forward(
         self,
@@ -92,12 +134,23 @@ class AdalasOPTDecoder(OPTDecoder):
                         f"The `{mask_name}` should be specified for {len(self.layers)} layers, but it is for"
                         f" {head_mask.size()[0]}."
                     )
-        skip_layers = [5, 7, 9]
+        skip_options = [[5, 7, 9], [4, 6]]
+        skip_layers = skip_options[random.randint(0, 1)]
         for idx, decoder_layer in enumerate(self.layers):
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
+
             if idx in skip_layers:
                 if use_cache:
-                    next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
+                    past_key_value = past_key_values[idx] if past_key_values is not None else None # take past values for all previous tokens at this layer
+                    layer_outputs = self.layers[idx].forward(hidden_states,
+                                                                   attention_mask=causal_attention_mask,
+                                                                   layer_head_mask=(head_mask[idx] if head_mask is not None else None),
+                                                                   past_key_value=past_key_value,
+                                                                   output_attentions=output_attentions,
+                                                                   use_cache=use_cache,
+                                                                   propagate_kv_cache_only=True
+                                                                   )
+                    next_decoder_cache += (layer_outputs[0],)
                 continue
 
             if output_hidden_states:
@@ -184,4 +237,7 @@ class AdalasOPTForCausalLM(OPTForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+
+
 
