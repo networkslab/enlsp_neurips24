@@ -1,4 +1,9 @@
 import os
+from typing import Iterable
+
+import numpy as np
+import random
+import torch
 
 def get_path_to_project_root():
     cwd = os.getcwd()
@@ -37,6 +42,11 @@ def freeze_network(network, excluded_submodules: list[str]):
     print('Successfully froze network: from {} to {} trainable params.'.format(
         total_num_parameters, num_trainable_params))
 
+def list_of_ints(arg):
+    return list(map(int, arg.split(',')))
+
+def list_of_floats(arg):
+    return list(map(float, arg.split(',')))
 
 def fix_the_seed(seed):
     random.seed(seed)
