@@ -2,7 +2,7 @@ import os
 
 def get_path_to_project_root():
     cwd = os.getcwd()
-    root_abs_path_index = cwd.split("/").index("QuEE")
+    root_abs_path_index = cwd.split("/").index("ADALaS")
     return "/".join(os.getcwd().split("/")[:root_abs_path_index + 1])
 
 def get_abs_path(paths_strings):
