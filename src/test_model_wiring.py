@@ -1,10 +1,12 @@
 from transformers import AutoModel, AutoTokenizer
 
-from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig
+from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StochasticDropoutPropagationConfig, StaticSkipPropagationConfig
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
 
 MODEL_NAME = 'facebook/opt-125M'
+propagation_config = StochasticDropoutPropagationConfig(skip_probs=[0.0, 0.0, 0.0, 0.0] + [0.3] * 8)
 adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
+adalas_config.propagation_config = propagation_config
 adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME, config=adalas_config)
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 # adalas.model.load_state_dict(pretrained_model.state_dict())

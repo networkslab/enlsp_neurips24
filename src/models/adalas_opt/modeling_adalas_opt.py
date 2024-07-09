@@ -1,13 +1,11 @@
-import random
 from typing import Optional, List, Union, Tuple
 
 from transformers.modeling_outputs import BaseModelOutputWithPast
-from transformers.models.opt import OPTPreTrainedModel
-from transformers.models.opt.modeling_opt import OPTDecoder, OPTForCausalLM, OPTModel, OPTDecoderLayer, \
+from transformers.models.opt.modeling_opt import OPTDecoder, OPTForCausalLM, OPTModel, \
     OPTLearnedPositionalEmbedding
 from transformers.utils import logging
 
-from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig
+from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 import torch
 from torch import nn
 
@@ -52,6 +50,7 @@ class AdalasOPTDecoder(OPTDecoder):
         self.layers = nn.ModuleList([AdalasOPTDecoderLayer(config) for _ in range(config.num_hidden_layers)])
 
         self.gradient_checkpointing = False
+        self.prop_config = self.config.propagation_config
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -134,15 +133,18 @@ class AdalasOPTDecoder(OPTDecoder):
                         f"The `{mask_name}` should be specified for {len(self.layers)} layers, but it is for"
                         f" {head_mask.size()[0]}."
                     )
-        skip_options = [[5, 7, 9], [4, 6]]
-        skip_layers = skip_options[random.randint(0, 1)]
         for idx, decoder_layer in enumerate(self.layers):
             # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
-
-            if idx in skip_layers:
+            should_skip_layer = False
+            if self.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
+                should_skip_layer = idx in self.prop_config.skip_layers
+            elif self.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
+                should_skip_layer = bool(torch.bernoulli(torch.tensor(self.prop_config.skip_probs[idx])).item())
+            if should_skip_layer:
+                print(f"Skipping layer {idx}")
                 if use_cache:
                     past_key_value = past_key_values[idx] if past_key_values is not None else None # take past values for all previous tokens at this layer
-                    layer_outputs = self.layers[idx].forward(hidden_states,
+                    layer_outputs = decoder_layer.forward(hidden_states,
                                                                    attention_mask=causal_attention_mask,
                                                                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
                                                                    past_key_value=past_key_value,
