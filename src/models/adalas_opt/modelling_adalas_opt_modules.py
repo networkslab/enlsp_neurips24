@@ -2,6 +2,7 @@ from typing import Optional, Tuple
 
 import torch
 from torch import nn
+from transformers.activations import ACT2FN
 from transformers.models.opt.modeling_opt import OPTDecoderLayer, OPTAttention
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig
@@ -10,7 +11,7 @@ from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig
 class AdalasOPTDecoderLayer(OPTDecoderLayer):
     def __init__(self, config: AdalasOPTConfig):
         super().__init__(config)
-        del self.self_attn
+        self.embed_dim = config.hidden_size
         self.self_attn = AdalasOPTAttention(
             embed_dim=self.embed_dim,
             num_heads=config.num_attention_heads,
@@ -18,6 +19,16 @@ class AdalasOPTDecoderLayer(OPTDecoderLayer):
             is_decoder=True,
             bias=config.enable_bias,
         )
+        self.do_layer_norm_before = config.do_layer_norm_before
+        self.dropout = config.dropout
+        self.activation_fn = ACT2FN[config.activation_function]
+
+        self.self_attn_layer_norm = nn.LayerNorm(
+            self.embed_dim, elementwise_affine=config.layer_norm_elementwise_affine
+        )
+        self.fc1 = nn.Linear(self.embed_dim, config.ffn_dim, bias=config.enable_bias)
+        self.fc2 = nn.Linear(config.ffn_dim, self.embed_dim, bias=config.enable_bias)
+        self.final_layer_norm = nn.LayerNorm(self.embed_dim, elementwise_affine=config.layer_norm_elementwise_affine)
 
     def forward(
             self,
