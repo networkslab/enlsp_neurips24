@@ -116,7 +116,7 @@ tornado==6.3.3
 tqdm==4.66.1
 traitlets==5.13.0
 transformers==4.34.1
-trl==0.9.4
+trl==0.9.6
 typing_extensions==4.8.0
 tzdata==2023.3
 urllib3==1.26.18
