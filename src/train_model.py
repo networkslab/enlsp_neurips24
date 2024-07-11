@@ -10,7 +10,8 @@ from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipP
     StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
 from src.utils.utils import get_abs_path, list_of_ints, list_of_floats
-
+from src.utils.train_utils import SFTTrainer_Generate
+import src.utils.train_utils as train_utils
 
 def main():
 
@@ -24,6 +25,7 @@ def main():
     parser.add_argument("--skip_probs", help='Probability of skipping each layer',
                         type=list_of_floats ,default=[])
     parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--train_epochs", type=int, default=3)
     parser.add_argument("--from_checkpoint",  action=argparse.BooleanOptionalAction)
     parser.add_argument("--multiprocess", action='store_true')
     args = parser.parse_args()
@@ -32,11 +34,25 @@ def main():
     MODEL_NAME = args.arch
     DATASET_NAME = args.dataset
 
+    #Dataset
     dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
     split_dataset = dataset.train_test_split(test_size=0.2)
     train_dataset = split_dataset[Split.TRAIN]
     val_dataset = split_dataset[Split.TEST]
+    
+    #Formatting Function
+    instruction_template = "### User: " #important to keep the space after the colon
+    response_template = "### Assistant: "
+    def formatting_func(example):
+        return train_utils.formatting_function_dolly_15k_oai_style(example, instruction_template, response_template)
+    
+    #Tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding_side='left', use_fast=False)
+    
+    #DataCollator
+    collator = DataCollatorForCompletionOnlyLM(instruction_template=instruction_template, response_template=response_template, tokenizer=tokenizer, mlm=False)
 
+    #Model
     if args.prop_mode == PropagationMode.STATIC_SKIP:
         propagation_config = StaticSkipPropagationConfig(skip_layers=args.skip_layers)
     elif args.prop_mode == PropagationMode.STOCHASTIC_DROPOUT:
@@ -51,15 +67,36 @@ def main():
     stripped_dataset_name = DATASET_NAME.split('/')[-1]
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}'
 
-    sft_config = SFTConfig(packing=False, output_dir=get_abs_path(['logs', output_dir_name]), max_seq_length=256,
-                           report_to=['tensorboard'], logging_steps=20, logging_dir=get_abs_path(['logs', output_dir_name]),
-                           logging_first_step=True, eval_steps=500, evaluation_strategy='steps',
-                           save_strategy=IntervalStrategy.NO)
-    trainer = SFTTrainer(
+    #Metrics
+    def compute_metrics(eval_pred):
+        train_utils.compute_metrics(eval_pred, tokenizer)
+
+    #Training
+    sft_config = SFTConfig(
+        packing=False, 
+        output_dir=get_abs_path(['logs', output_dir_name]),
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        num_train_epochs=args.train_epochs,
+        max_seq_length=256,
+        report_to=['tensorboard'], 
+        logging_steps=20, 
+        logging_dir=get_abs_path(['logs', output_dir_name]),
+        logging_first_step=True,
+        evaluation_strategy='steps', 
+        eval_steps=500, 
+        save_strategy=IntervalStrategy.NO,
+        prediction_loss_only=False
+        )
+    trainer = SFTTrainer_Generate(
         model=adalas,
         args=sft_config,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
+        formatting_func=formatting_func,
+        tokenizer=tokenizer,
+        data_collator=collator,
+        compute_metrics=compute_metrics,
     )
     trainer.train()
 
