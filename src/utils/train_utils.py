@@ -33,13 +33,15 @@ def compute_metrics(eval_pred,tokenizer):
     
     #compute rouge
     rouge_score = load("rouge")
-    r = rouge_score.compute(predictions=predictions, references=labels, use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],use_agregator=True)
+    r = rouge_score.compute(predictions=predictions, references=labels, 
+                            use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
+                            use_aggregator=True)
     result["rouge1"] = r["rouge1"]
     result["rouge2"] = r["rouge2"]
     result["rougeL"] = r["rougeL"]
     
     #log the average error in length of the generated text as a fraction of the length of the label
-    pred_percentage_length = [(float)((len(predictions[i])-len(labels[i])))/len(labels[i]) for i in range(len(predictions))]
+    pred_percentage_length = [(float)((len(predictions[i])-len(labels[i])))/len(labels[i]) for i in range(len(predictions))]# TODO remove empty labels
     result["pred_percentage_length"] = np.mean(pred_percentage_length)
     
     #log examples for debugging
@@ -60,7 +62,7 @@ def formatting_function_dolly_15k_oai_style(example, instruction_template, respo
     """
     output_texts = []
     for i in range(len(example["messages"])):
-        text = f"{instruction_template}{example['messages'][0]['content']}\n{response_template}{example['messages'][1]['content']}"
+        text = f"{instruction_template}{example['messages'][i][0]['content']}\n{response_template}{example['messages'][i][1]['content']}"
         output_texts.append(text)
     return output_texts
 
@@ -114,17 +116,15 @@ class SFTTrainer_Generate(SFTTrainer):
 
         generation_inputs = inputs.copy()
         
-        #Addition: Modify generation inputs to use 'input_ids_for_gen' and 'labels_for_gen'
-        #check if correct dict entries exist, so that normal behavior is not affected
-        custom_generation = False #keep track of if we are modifying the generate behavior
-        if('input_ids_for_gen' in generation_inputs.keys() and 'attention_mask_for_gen' in generation_inputs.keys() and 'labels_for_gen' in generation_inputs.keys()):
-            custom_generation = True
-            generation_inputs['input_ids'] = generation_inputs['input_ids_for_gen'] #set input ids
-            generation_inputs['attention_mask'] = generation_inputs['attention_mask_for_gen'] #set attention mask
-            for key in ['input_ids_for_gen','attention_mask_for_gen','labels_for_gen']: #delete unused values, since they cause an error if they are kept
-                generation_inputs.pop(key)
-        #end of addition
-
+        label_mask = generation_inputs['input_ids'] == generation_inputs['labels'] # 1 where response starts
+        generation_inputs['input_ids'] = torch.logical_not(label_mask) * generation_inputs['input_ids']
+        generation_inputs['attention_mask'] = torch.logical_not(label_mask) * generation_inputs['attention_mask']
+        num_shifts = torch.sum(generation_inputs['input_ids'] == 0, 1)
+        num_shifts = num_shifts.tolist()
+        generation_inputs['input_ids'] = generation_inputs['input_ids'] + label_mask.int()
+        for seq_idx, num_shift in enumerate(num_shifts):
+            generation_inputs['input_ids'][seq_idx] = torch.roll(generation_inputs['input_ids'][seq_idx], num_shift)
+            generation_inputs['attention_mask'][seq_idx] = torch.roll(generation_inputs['attention_mask'][seq_idx], num_shift)
         
         # If the `decoder_input_ids` was created from `labels`, evict the former, so that the model can freely generate
         # (otherwise, it would continue generating from the padded `decoder_input_ids`)
@@ -134,14 +134,12 @@ class SFTTrainer_Generate(SFTTrainer):
             and generation_inputs["labels"].shape == generation_inputs["decoder_input_ids"].shape
         ):
             generation_inputs = {k: v for k, v in inputs.items() if k != "decoder_input_ids"}
-        generated_tokens = self.model.generate(**generation_inputs)
+        generated_tokens = self.model.generate(**generation_inputs, max_new_tokens=100) # TODO pass max_new_tokens as a config
+       
+        for k in range(generated_tokens.size(dim=0)):
+            prompt_length = generation_inputs['input_ids'][k].size(dim=0)
+            generated_tokens[k][:prompt_length] = 1
         
-        #Addition: Remove prompt from generated tokens
-        if custom_generation:
-            for k in range(generated_tokens.size(dim=0)):
-                prompt_length = generation_inputs['input_ids'][k].size(dim=0)
-                generated_tokens[k][:prompt_length] = 1
-
         # Temporary hack to ensure the generation config is not initialized for each iteration of the evaluation loop
         # TODO: remove this hack when the legacy code that initializes generation_config from a model config is
         # removed in https://github.com/huggingface/transformers/blob/98d88b23f54e5a23e741833f1e973fdf600cc2c5/src/transformers/generation/utils.py#L1183

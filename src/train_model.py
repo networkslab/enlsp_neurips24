@@ -18,13 +18,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default='philschmid/dolly-15k-oai-style')
     parser.add_argument("--arch", type=str, choices=['facebook/opt-125M', 'facebook/opt-250M'], default='facebook/opt-125M')
-    parser.add_argument("--prop_mode", type=PropagationMode, choices=list(PropagationMode), default=PropagationMode.FULL)
+    parser.add_argument("--prop_mode", type=PropagationMode, choices=list(PropagationMode), default=PropagationMode.STATIC_SKIP)
 
     parser.add_argument("--skip_layers", help='Which layers to skip when using STATIC_SKIP propagation mode',
-                        type=list_of_ints,default=[])
+                        type=list_of_ints,default=[2, 6, 8])
     parser.add_argument("--skip_probs", help='Probability of skipping each layer',
                         type=list_of_floats ,default=[])
-    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--batch_size", type=int, default=10)
     parser.add_argument("--train_epochs", type=int, default=3)
     parser.add_argument("--from_checkpoint",  action=argparse.BooleanOptionalAction)
     parser.add_argument("--multiprocess", action='store_true')
@@ -36,13 +36,14 @@ def main():
 
     #Dataset
     dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
-    split_dataset = dataset.train_test_split(test_size=0.2)
-    train_dataset = split_dataset[Split.TRAIN]
+    split_dataset = dataset.train_test_split(test_size=0.8)
+    split_dataset = split_dataset[Split.TRAIN].train_test_split(test_size=0.2)
     val_dataset = split_dataset[Split.TEST]
+    train_dataset = split_dataset[Split.TRAIN]
     
     #Formatting Function
-    instruction_template = "### User: " #important to keep the space after the colon
-    response_template = "### Assistant: "
+    instruction_template = "### User:" #important to keep the space after the colon
+    response_template = "### Assistant:"
     def formatting_func(example):
         return train_utils.formatting_function_dolly_15k_oai_style(example, instruction_template, response_template)
     
@@ -84,9 +85,10 @@ def main():
         logging_dir=get_abs_path(['logs', output_dir_name]),
         logging_first_step=True,
         evaluation_strategy='steps', 
-        eval_steps=500, 
+        eval_steps=2, 
         save_strategy=IntervalStrategy.NO,
-        prediction_loss_only=False
+        prediction_loss_only=False,
+        include_inputs_for_metrics=True
         )
     trainer = SFTTrainer_Generate(
         model=adalas,
