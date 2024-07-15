@@ -72,6 +72,7 @@ class AdalasOPTDecoder(OPTDecoder):
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
+        separation_token = 2
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -140,7 +141,7 @@ class AdalasOPTDecoder(OPTDecoder):
                 should_skip_layer = idx in self.prop_config.skip_layers
             elif self.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
                 should_skip_layer = bool(torch.bernoulli(torch.tensor(self.prop_config.skip_probs[idx])).item())
-            if should_skip_layer:
+            if should_skip_layer and past_key_values is not None: # if past key values is passed, it means we are dealing with generation of new tok
                 if use_cache:
                     past_key_value = past_key_values[idx] if past_key_values is not None else None # take past values for all previous tokens at this layer
                     layer_outputs = decoder_layer.forward(hidden_states,
@@ -151,7 +152,7 @@ class AdalasOPTDecoder(OPTDecoder):
                                                                    use_cache=use_cache,
                                                                    propagate_kv_cache_only=True
                                                                    )
-                    next_decoder_cache += (layer_outputs[0],)
+                    next_decoder_cache += (layer_outputs[0],) # only populate the cache.
                 continue
 
             if output_hidden_states:
@@ -189,14 +190,24 @@ class AdalasOPTDecoder(OPTDecoder):
                     output_attentions=output_attentions,
                     use_cache=use_cache,
                 )
-
-            hidden_states = layer_outputs[0]
+            
+            if should_skip_layer:
+                label_mask = (torch.cumsum(input_ids == separation_token, 1) > 0)[:, :, None] # 1 where labels are
+                hidden_states = layer_outputs[0] * torch.logical_not(label_mask) + hidden_states * label_mask # for the label part, keep the hidden states as before. For the prompt part, update
+            else:
+                hidden_states = layer_outputs[0] 
 
             if use_cache:
                 next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
             if output_attentions:
-                all_self_attns += (layer_outputs[1],)
+                if should_skip_layer:
+                    label_mask = (torch.cumsum(input_ids == separation_token, 1) > 0)[:, None, :, None] # 1 where label is
+                    previous_self_attn = all_self_attns[-1]
+                    current_self_attn = layer_outputs[1] * torch.logical_not(label_mask) + previous_self_attn * label_mask
+                    all_self_attns += (current_self_attn,)
+                else:
+                    all_self_attns += (layer_outputs[1],)
 
         if self.final_layer_norm is not None:
             hidden_states = self.final_layer_norm(hidden_states)
