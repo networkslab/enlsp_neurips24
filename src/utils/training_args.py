@@ -13,7 +13,7 @@ class TrainingArgs:
     batch_size: int = 10
     train_epochs: int = 3
     max_seq_length: int = 256
-    promp_seq_length: float = 0.7
+    prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
     multiprocess: bool = True
     instruction_template: str = "### User:"

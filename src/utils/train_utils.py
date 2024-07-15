@@ -80,20 +80,21 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         
         #calculate max length of prompt, rounding down
         prompt_total_budget = int(args.max_seq_length * args.prompt_seq_length)
-        prompt_budget = prompt_total_budget - len(tokenizer.bos_token_id) - len(instruction_template_ids) - len(response_template_ids)
-        response_budget = args.max_seq_length - prompt_total_budget - len(tokenizer.eos_token_id) 
+        prompt_budget = prompt_total_budget - len([tokenizer.bos_token_id]) - len(instruction_template_ids) - len(response_template_ids)
+        response_budget = args.max_seq_length - prompt_total_budget - len([tokenizer.eos_token_id]) 
         #tokenize input
         prompt_tokens = tokenizer(prompts, truncation=True, max_length=prompt_budget, add_special_tokens=False)
         response_tokens = tokenizer(responses, truncation=True, max_length=response_budget, add_special_tokens=False)
         
         model_inputs = copy.deepcopy(prompt_tokens)
         for i in range(len(model_inputs['input_ids'])):
-            model_inputs['input_ids'][i] += tokenizer.bos_token_id + instruction_template_ids + model_inputs['input_ids'][i] + response_template_ids
+            model_inputs['input_ids'][i] = [tokenizer.bos_token_id] + instruction_template_ids + model_inputs['input_ids'][i] + response_template_ids
             model_inputs['input_ids'][i].extend(response_tokens['input_ids'][i])
             model_inputs['input_ids'][i].append(tokenizer.eos_token_id)            
             model_inputs['attention_mask'][i] = [1]*len(model_inputs['input_ids'][i])
         
         model_inputs['labels'] = copy.deepcopy(model_inputs['input_ids'])
+        return model_inputs
 
     def tokenize_function_eval(examples):
         #### SAME AS tokenize_function ####
@@ -108,15 +109,15 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         
         #calculate max length of prompt, rounding down
         prompt_total_budget = int(args.max_seq_length * args.prompt_seq_length)
-        prompt_budget = prompt_total_budget - len(tokenizer.bos_token_id) - len(instruction_template_ids) - len(response_template_ids)
-        response_budget = args.max_seq_length - prompt_total_budget - len(tokenizer.eos_token_id) 
+        prompt_budget = prompt_total_budget - len([tokenizer.bos_token_id]) - len(instruction_template_ids) - len(response_template_ids)
+        response_budget = args.max_seq_length - prompt_total_budget - len([tokenizer.eos_token_id]) 
         #tokenize input
         prompt_tokens = tokenizer(prompts, truncation=True, max_length=prompt_budget, add_special_tokens=False)
         response_tokens = tokenizer(responses, truncation=True, max_length=response_budget, add_special_tokens=False)
         
         model_inputs = copy.deepcopy(prompt_tokens)
         for i in range(len(model_inputs['input_ids'])):
-            model_inputs['input_ids'][i] += tokenizer.bos_token_id + instruction_template_ids + model_inputs['input_ids'][i] + response_template_ids
+            model_inputs['input_ids'][i] = [tokenizer.bos_token_id] + instruction_template_ids + model_inputs['input_ids'][i] + response_template_ids
         ######## NEW ########
         model_inputs['input_ids_for_gen'] = copy.deepcopy(model_inputs['input_ids'])
         model_inputs['attention_mask_for_gen'] = [1]*len(model_inputs['input_ids_for_gen'])
@@ -128,9 +129,10 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
             model_inputs['labels_for_gen'][i].append(tokenizer.eos_token_id)
         
         model_inputs['labels'] = copy.deepcopy(model_inputs['input_ids'])
+        return model_inputs
         
     tokenized_dataset_train = dataset['train'].map(tokenize_function, batched=True)
-    tokenized_dataset_val = dataset['validation'].map(tokenize_function_eval, batched=True)
+    tokenized_dataset_val = dataset['test'].map(tokenize_function_eval, batched=True)
     
     return tokenized_dataset_train, tokenized_dataset_val
   
@@ -291,7 +293,7 @@ class DataCollatorForCompletionOnlyLMGenerate(DataCollatorForCompletionOnlyLM):
         #Addition: pad 'labels','input_ids_for_gen', 'labels_for_gen' and 'attention_mask_for_gen'
         #TODO
         
-        batch = super(DataCollatorForCompletionOnlyLM,self).torch_call(examples)
+        batch = super(DataCollatorForCompletionOnlyLM, self).torch_call(examples)
 
         if self.instruction_template is None:
             for i in range(len(examples)):

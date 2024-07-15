@@ -31,6 +31,7 @@ def main():
     
     #tokenizer
     sep_token = AddedToken("<SEP>", lstrip=False, rstrip=False)
+    # TODO update model to account for expanded vocab
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding_side='left', use_fast=False, sep_token=sep_token)
     
     #templates
@@ -45,10 +46,8 @@ def main():
     
     else:
         full_dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
-        dataset = full_dataset.train_test_split(test_size=0.2)
-        
-
-        
+        full_dataset = full_dataset.select(indices=range(50))
+        dataset = full_dataset.train_test_split(test_size=0.2) 
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, DATASET_NAME, tokenizer, args, instruction_template_ids, response_template_ids)
         
   
@@ -99,10 +98,10 @@ def main():
     trainer.train()
 
 def validate_args(args):
-    if args.prop_mode == PropagationMode.STATIC_SKIP:
-        assert len(args.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
-    if args.prop_mode == PropagationMode.STOCHASTIC_DROPOUT:
-        assert len(args.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'
+    if args.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
+        assert len(args.prop_config.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
+    if args.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
+        assert len(args.prop_config.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'
 
 if __name__ == "__main__":
     main()
