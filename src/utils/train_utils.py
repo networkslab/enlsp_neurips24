@@ -6,7 +6,15 @@ from torch import nn
 from typing import Any, Dict, List, Optional, Tuple, Union
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 import torch
-from trl.trainer import SFTTrainer
+from trl.trainer import SFTTrainer, SFTConfig
+from trl import DataCollatorForCompletionOnlyLM
+from dataclasses import dataclass
+import inspect
+import warnings
+from collections.abc import Mapping
+from src.utils.training_args import DATASET_KEYS
+import copy
+
 
 def compute_metrics(eval_pred,tokenizer):
     """Computes ROUGE score for evaluation predictions
@@ -57,17 +65,85 @@ def compute_metrics(eval_pred,tokenizer):
     return {k: round(v,4) for k,v in result.items()}
 
 
-def formatting_function_dolly_15k_oai_style(example, instruction_template, response_template):
-    """Formats the input data for the dataset: "philschmid/dolly-15k-oai-style" 
-    """
-    output_texts = []
-    for i in range(len(example["messages"])):
-        text = f"{instruction_template}{example['messages'][i][0]['content']}\n{response_template}{example['messages'][i][1]['content']}"
-        output_texts.append(text)
-    return output_texts
+def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids):
+    
+    #Tokenize
+    def tokenize_function(examples):
+        prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
+        #check if 'context' is in the datassetKeys 
+        if 'context' in DATASET_KEYS[dataset_name]:
+            contexts = examples[DATASET_KEYS[dataset_name]['context']]
+            #concatenate prompts and contexts efficiently using map
+            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            
+        responses = examples[DATASET_KEYS[dataset_name]['response']]
+        
+        #calculate max length of prompt, rounding down
+        prompt_total_budget = int(args.max_seq_length * args.prompt_seq_length)
+        prompt_budget = prompt_total_budget - len(tokenizer.bos_token_id) - len(instruction_template_ids) - len(response_template_ids)
+        response_budget = args.max_seq_length - prompt_total_budget - len(tokenizer.eos_token_id) 
+        #tokenize input
+        prompt_tokens = tokenizer(prompts, truncation=True, max_length=prompt_budget, add_special_tokens=False)
+        response_tokens = tokenizer(responses, truncation=True, max_length=response_budget, add_special_tokens=False)
+        
+        model_inputs = copy.deepcopy(prompt_tokens)
+        for i in range(len(model_inputs['input_ids'])):
+            model_inputs['input_ids'][i] += tokenizer.bos_token_id + instruction_template_ids + model_inputs['input_ids'][i] + response_template_ids
+            model_inputs['input_ids'][i].extend(response_tokens['input_ids'][i])
+            model_inputs['input_ids'][i].append(tokenizer.eos_token_id)            
+            model_inputs['attention_mask'][i] = [1]*len(model_inputs['input_ids'][i])
+        
+        model_inputs['labels'] = copy.deepcopy(model_inputs['input_ids'])
+
+    def tokenize_function_eval(examples):
+        #### SAME AS tokenize_function ####
+        prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
+        #check if 'context' is in the datassetKeys 
+        if 'context' in DATASET_KEYS[dataset_name]:
+            contexts = examples[DATASET_KEYS[dataset_name]['context']]
+            #concatenate prompts and contexts efficiently using map
+            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            
+        responses = examples[DATASET_KEYS[dataset_name]['response']]
+        
+        #calculate max length of prompt, rounding down
+        prompt_total_budget = int(args.max_seq_length * args.prompt_seq_length)
+        prompt_budget = prompt_total_budget - len(tokenizer.bos_token_id) - len(instruction_template_ids) - len(response_template_ids)
+        response_budget = args.max_seq_length - prompt_total_budget - len(tokenizer.eos_token_id) 
+        #tokenize input
+        prompt_tokens = tokenizer(prompts, truncation=True, max_length=prompt_budget, add_special_tokens=False)
+        response_tokens = tokenizer(responses, truncation=True, max_length=response_budget, add_special_tokens=False)
+        
+        model_inputs = copy.deepcopy(prompt_tokens)
+        for i in range(len(model_inputs['input_ids'])):
+            model_inputs['input_ids'][i] += tokenizer.bos_token_id + instruction_template_ids + model_inputs['input_ids'][i] + response_template_ids
+        ######## NEW ########
+        model_inputs['input_ids_for_gen'] = copy.deepcopy(model_inputs['input_ids'])
+        model_inputs['attention_mask_for_gen'] = [1]*len(model_inputs['input_ids_for_gen'])
+        model_inputs['labels_for_gen'] = response_tokens['input_ids']
+        for i in range(len(model_inputs['input_ids'])):
+            model_inputs['input_ids'][i].extend(response_tokens['input_ids'][i])
+            model_inputs['input_ids'][i].append(tokenizer.eos_token_id)            
+            model_inputs['attention_mask'][i] = [1]*len(model_inputs['input_ids'][i])
+            model_inputs['labels_for_gen'][i].append(tokenizer.eos_token_id)
+        
+        model_inputs['labels'] = copy.deepcopy(model_inputs['input_ids'])
+        
+    tokenized_dataset_train = dataset['train'].map(tokenize_function, batched=True)
+    tokenized_dataset_val = dataset['validation'].map(tokenize_function_eval, batched=True)
+    
+    return tokenized_dataset_train, tokenized_dataset_val
+  
 
 
-class SFTTrainer_Generate(SFTTrainer):
+
+@dataclass
+class SFTConfigGenerate(SFTConfig):
+    
+    eval_with_generate: Optional[bool] = False
+
+
+class SFTTrainerGenerate(SFTTrainer):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -106,7 +182,7 @@ class SFTTrainer_Generate(SFTTrainer):
             logits and labels (each being optional).
         """
         
-        if prediction_loss_only:
+        if self.args.eval_with_generate == False:
             return super().prediction_step(
                 model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys
             )
@@ -197,4 +273,104 @@ class SFTTrainer_Generate(SFTTrainer):
         padded_tensor[:, : tensor.shape[-1]] = tensor
         return padded_tensor
         
+    def _set_signature_columns_if_needed(self):
+        if self._signature_columns is None:
+            # Inspect model forward signature to keep only the arguments it accepts.
+            signature = inspect.signature(self.model.forward)
+            self._signature_columns = list(signature.parameters.keys())
+            # Labels may be named label or label_ids, the default data collator handles that.
+            self._signature_columns += list(set(["label", "label_ids"] + self.label_names))
+
+            #Addition: Add 'input_ids_for_gen', 'labels_for_gen' and 'attention_mask_for_gen' to _signature_columns so that they are not removed
+            self._signature_columns += ['input_ids_for_gen','labels_for_gen','attention_mask_for_gen']
+            #this will have no effect of those dict entries are not present
+
+class DataCollatorForCompletionOnlyLMGenerate(DataCollatorForCompletionOnlyLM):
+    
+    def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
+        #Addition: pad 'labels','input_ids_for_gen', 'labels_for_gen' and 'attention_mask_for_gen'
+        #TODO
         
+        batch = super(DataCollatorForCompletionOnlyLM,self).torch_call(examples)
+
+        if self.instruction_template is None:
+            for i in range(len(examples)):
+                response_token_ids_start_idx = None
+
+                for idx in np.where(batch["labels"][i] == self.response_token_ids[0])[0]:
+                    # `response_token_ids` is `'### Response:\n'`, here we are just making sure that the token IDs match
+                    if (
+                        self.response_token_ids
+                        == batch["labels"][i][idx : idx + len(self.response_token_ids)].tolist()
+                    ):
+                        response_token_ids_start_idx = idx
+
+                if response_token_ids_start_idx is None:
+                    warnings.warn(
+                        f"Could not find response key `{self.response_template}` in the "
+                        f'following instance: {self.tokenizer.decode(batch["input_ids"][i])} '
+                        f"This instance will be ignored in loss calculation. "
+                        f"Note, if this happens often, consider increasing the `max_seq_length`."
+                    )
+                    batch["labels"][i, :] = self.ignore_index
+                else:
+                    response_token_ids_end_idx = response_token_ids_start_idx + len(self.response_token_ids)
+
+                    # Make pytorch loss function ignore all tokens up through the end of the response key
+                    batch["labels"][i, :response_token_ids_end_idx] = self.ignore_index
+
+        else:
+            for i in range(len(examples)):
+                response_token_ids_idxs = []
+                human_token_ids_idxs = []
+
+                for assistant_idx in np.where(batch["labels"][i] == self.response_token_ids[0])[0]:
+                    # find the indexes of the start of a response.
+                    if (
+                        self.response_token_ids
+                        == batch["labels"][i][assistant_idx : assistant_idx + len(self.response_token_ids)].tolist()
+                    ):
+                        response_token_ids_idxs.append(assistant_idx + len(self.response_token_ids))
+
+                if len(response_token_ids_idxs) == 0:
+                    warnings.warn(
+                        f"Could not find response key `{self.response_template}` in the "
+                        f'following instance: {self.tokenizer.decode(batch["input_ids"][i])} '
+                        f"This instance will be ignored in loss calculation. "
+                        f"Note, if this happens often, consider increasing the `max_seq_length`."
+                    )
+                    batch["labels"][i, :] = self.ignore_index
+
+                human_token_ids = self.instruction_token_ids
+                for human_idx in np.where(batch["labels"][i] == human_token_ids[0])[0]:
+                    # find the indexes of the start of a human answer.
+                    if human_token_ids == batch["labels"][i][human_idx : human_idx + len(human_token_ids)].tolist():
+                        human_token_ids_idxs.append(human_idx)
+
+                if len(human_token_ids_idxs) == 0:
+                    warnings.warn(
+                        f"Could not find instruction key `{self.instruction_template}` in the "
+                        f'following instance: {self.tokenizer.decode(batch["input_ids"][i])} '
+                        f"This instance will be ignored in loss calculation. "
+                        f"Note, if this happens often, consider increasing the `max_seq_length`."
+                    )
+                    batch["labels"][i, :] = self.ignore_index
+
+                if (
+                    len(human_token_ids_idxs) > 0
+                    and len(response_token_ids_idxs) > 0
+                    and human_token_ids_idxs[0] > response_token_ids_idxs[0]
+                ):
+                    human_token_ids_idxs = [0] + human_token_ids_idxs
+
+                for idx, (start, end) in enumerate(zip(human_token_ids_idxs, response_token_ids_idxs)):
+                    # Make pytorch loss function ignore all non response tokens
+                    if idx != 0:
+                        batch["labels"][i, start:end] = self.ignore_index
+                    else:
+                        batch["labels"][i, :end] = self.ignore_index
+
+                if len(response_token_ids_idxs) < len(human_token_ids_idxs):
+                    batch["labels"][i, human_token_ids_idxs[-1] :] = self.ignore_index
+
+        return batch
