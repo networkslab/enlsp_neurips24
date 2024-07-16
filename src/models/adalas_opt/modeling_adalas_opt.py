@@ -141,7 +141,7 @@ class AdalasOPTDecoder(OPTDecoder):
                 should_skip_layer = idx in self.prop_config.skip_layers
             elif self.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
                 should_skip_layer = bool(torch.bernoulli(torch.tensor(self.prop_config.skip_probs[idx])).item())
-            if should_skip_layer and past_key_values is not None: # if past key values is passed, it means we are dealing with generation of new tok
+            if should_skip_layer and (self.config.skip_prompt or past_key_values is not None): # if past key values is passed, it means we are dealing with generation of new tok
                 if use_cache:
                     past_key_value = past_key_values[idx] if past_key_values is not None else None # take past values for all previous tokens at this layer
                     layer_outputs = decoder_layer.forward(hidden_states,
