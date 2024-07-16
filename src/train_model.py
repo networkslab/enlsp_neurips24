@@ -3,6 +3,7 @@ from typing import List
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
 from datasets import load_dataset, Split
 import argparse
+from datetime import datetime
 
 from trl import SFTConfig, SFTTrainer, DataCollatorForCompletionOnlyLM
 
@@ -25,6 +26,7 @@ def main():
                         type=list_of_floats ,default=[])
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--from_checkpoint",  action=argparse.BooleanOptionalAction)
+    parser.add_argument("--skip_prompt",  action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--multiprocess", action='store_true')
     args = parser.parse_args()
     validate_args(args)
@@ -45,13 +47,16 @@ def main():
         propagation_config = PropagationConfig()
     adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
     adalas_config.propagation_config = propagation_config
+    adalas_config.skip_prompt = args.skip_prompt
     adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME, config=adalas_config)
 
     stripped_model_name = MODEL_NAME.split('/')[-1]
     stripped_dataset_name = DATASET_NAME.split('/')[-1]
-    output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}'
+    current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
 
-    sft_config = SFTConfig(packing=False, output_dir=get_abs_path(['logs', output_dir_name]), max_seq_length=256,
+    output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
+
+    sft_config = SFTConfig(packing=False, output_dir=get_abs_path(['results', output_dir_name]), max_seq_length=256,
                            report_to=['tensorboard'], logging_steps=20, logging_dir=get_abs_path(['logs', output_dir_name]),
                            logging_first_step=True, eval_steps=500, evaluation_strategy='steps',
                            save_strategy=IntervalStrategy.NO)
@@ -61,6 +66,7 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
     )
+    trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     trainer.train()
 
 def validate_args(args):
