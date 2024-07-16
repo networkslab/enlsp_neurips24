@@ -58,6 +58,7 @@ class AdalasOPTConfig(OPTConfig):
                  pad_token_id=1,
                  bos_token_id=2,
                  eos_token_id=2,
+                 sep_token_id=50273,
                  enable_bias=True,
                  layer_norm_elementwise_affine=True,
                  propagation_config: PropagationConfig = PropagationConfig(),
@@ -86,6 +87,7 @@ class AdalasOPTConfig(OPTConfig):
                          **kwargs)
         self.propagation_config = propagation_config
         self.skip_prompt = skip_prompt
+        self.sep_token_id = sep_token_id
 
     def to_json_string(self, use_diff: bool = True) -> str:
         if use_diff is True:

@@ -60,11 +60,13 @@ def main():
     adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
     adalas_config.propagation_config = propagation_config
     adalas_config.skip_prompt = args.skip_prompt
+    adalas_config.sep_token_id = tokenizer.sep_token_id
     adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME, config=adalas_config)
 
     stripped_model_name = MODEL_NAME.split('/')[-1]
     stripped_dataset_name = DATASET_NAME.split('/')[-1]
     current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
+    output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
     #Metrics
     def compute_metrics(eval_pred):

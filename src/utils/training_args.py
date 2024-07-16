@@ -18,6 +18,7 @@ class TrainingArgs:
     multiprocess: bool = True
     instruction_template: str = "### User:"
     response_template: str = "\n### Assistant:"
+    skip_prompt: bool = False
     save_dataset_dir: Optional[str] = None
     save_model_pretrain_dir: Optional[str] = None
 
