@@ -47,7 +47,7 @@ def main():
     
     else:
         full_dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
-        full_dataset = full_dataset.select(indices=range(200))
+        #full_dataset = full_dataset.select(indices=range(200))
         dataset = full_dataset.train_test_split(test_size=0.2) 
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, DATASET_NAME, tokenizer, args, instruction_template_ids, response_template_ids)
         
@@ -85,7 +85,7 @@ def main():
         logging_dir=get_abs_path(['logs', output_dir_name]),
         logging_first_step=True,
         evaluation_strategy='steps',
-        eval_steps=2, 
+        eval_steps=100, 
         save_strategy=IntervalStrategy.NO,
         include_inputs_for_metrics=True,
         eval_with_generate=True
