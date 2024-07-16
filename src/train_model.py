@@ -66,6 +66,7 @@ def main():
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
     )
+    trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     trainer.train()
 
 def validate_args(args):
