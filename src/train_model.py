@@ -5,6 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
 
 from datasets import load_dataset, Split, load_from_disk
 import argparse
+from datetime import datetime
 
 import numpy as np
 import copy
@@ -58,11 +59,12 @@ def main():
     propagation_config = args.prop_config
     adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
     adalas_config.propagation_config = propagation_config
+    adalas_config.skip_prompt = args.skip_prompt
     adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME, config=adalas_config)
 
     stripped_model_name = MODEL_NAME.split('/')[-1]
     stripped_dataset_name = DATASET_NAME.split('/')[-1]
-    output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}'
+    current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
 
     #Metrics
     def compute_metrics(eval_pred):
@@ -95,7 +97,7 @@ def main():
         data_collator=collator,
         compute_metrics=compute_metrics,
     )
-    trainer.neftune_noise_alpha = None
+    trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     trainer.train()
 
 def validate_args(args):
