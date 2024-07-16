@@ -16,7 +16,7 @@ from src.utils.training_args import DATASET_KEYS
 import copy
 
 
-def compute_metrics(eval_pred,tokenizer):
+def compute_metrics(eval_pred,tokenizer, samples_to_save = 5):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -54,12 +54,12 @@ def compute_metrics(eval_pred,tokenizer):
     
     #log examples for debugging
     examples = {}
-    for i in range(50):
+    for i in range(samples_to_save):
         examples["input_"+str(i)] = str(inputs[i])
         examples["label_"+str(i)] = str(labels[i])
         examples["prediction_"+str(i)] = str(predictions[i])
     
-    with open(get_abs_path(["logs","examples.json"]), "w", encoding="utf-8") as f:
+    with open(f'{get_abs_path(["logs"])}/examples.json', "w", encoding="utf-8") as f:
         json.dump(examples, f, ensure_ascii=False, indent=4)
     
     return {k: round(v,4) for k,v in result.items()}
@@ -94,6 +94,12 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
             model_inputs['attention_mask'][i] = [1]*len(model_inputs['input_ids'][i])
         
         model_inputs['labels'] = copy.deepcopy(model_inputs['input_ids'])
+
+
+        #mask prompt from labels so loss is not calculated on it
+        for i in range(len(model_inputs["labels"])):
+            prompt_length = len(prompt_tokens['input_ids'][i]) + len(instruction_template_ids) + len(response_template_ids) + 1 # 1 for bos token
+            model_inputs["labels"][i][:prompt_length] = [-100]*prompt_length #-100 means ignore loss for that token
         return model_inputs
 
     def tokenize_function_eval(examples):
@@ -120,18 +126,19 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
             model_inputs['input_ids'][i] = [tokenizer.bos_token_id] + instruction_template_ids + model_inputs['input_ids'][i] + response_template_ids
         ######## NEW ########
         model_inputs['input_ids_for_gen'] = copy.deepcopy(model_inputs['input_ids'])
-        model_inputs['attention_mask_for_gen'] = [1]*len(model_inputs['input_ids_for_gen'])
         model_inputs['labels_for_gen'] = response_tokens['input_ids']
+        model_inputs['attention_mask_for_gen'] = []
         for i in range(len(model_inputs['input_ids'])):
             model_inputs['input_ids'][i].extend(response_tokens['input_ids'][i])
-            model_inputs['input_ids'][i].append(tokenizer.eos_token_id)            
+            model_inputs['input_ids'][i].append(tokenizer.eos_token_id)
+            model_inputs['attention_mask_for_gen'].append([1]*len(model_inputs['input_ids_for_gen'][i]))
             model_inputs['attention_mask'][i] = [1]*len(model_inputs['input_ids'][i])
             model_inputs['labels_for_gen'][i].append(tokenizer.eos_token_id)
         
         model_inputs['labels'] = copy.deepcopy(model_inputs['input_ids'])
-        #mask prompt from labels so loss is not calculated on it
+        # mask prompt from labels so loss is not calculated on it
         for i in range(len(model_inputs["labels"])):
-            prompt_length = len(model_inputs['input_ids_for_gen'][i]) #get length of prompt we want to mask, +10 for prefix, +3 for suffix
+            prompt_length = len(prompt_tokens['input_ids'][i]) + len(instruction_template_ids) + len(response_template_ids) + 1 # 1 for bos token
             model_inputs["labels"][i][:prompt_length] = [-100]*prompt_length #-100 means ignore loss for that token
         return model_inputs
         
@@ -197,17 +204,11 @@ class SFTTrainerGenerate(SFTTrainer):
         inputs = self._prepare_inputs(inputs)
 
         generation_inputs = inputs.copy()
-        
-        label_mask = generation_inputs['input_ids'] == generation_inputs['labels'] # 1 where response starts
-        generation_inputs['input_ids'] = torch.logical_not(label_mask) * generation_inputs['input_ids']
-        generation_inputs['attention_mask'] = torch.logical_not(label_mask) * generation_inputs['attention_mask']
-        num_shifts = torch.sum(generation_inputs['input_ids'] == 0, 1)
-        num_shifts = num_shifts.tolist()
-        generation_inputs['input_ids'] = generation_inputs['input_ids'] + label_mask.int()
-        for seq_idx, num_shift in enumerate(num_shifts):
-            generation_inputs['input_ids'][seq_idx] = torch.roll(generation_inputs['input_ids'][seq_idx], num_shift)
-            generation_inputs['attention_mask'][seq_idx] = torch.roll(generation_inputs['attention_mask'][seq_idx], num_shift)
-        
+
+        generation_inputs['input_ids'] = generation_inputs['input_ids_for_gen'] #set input ids without the response part
+        generation_inputs['attention_mask'] = generation_inputs['attention_mask_for_gen'] #set attention mask (only look at prompt)
+        for key in ['input_ids_for_gen','attention_mask_for_gen','labels_for_gen']: #delete unused values, since they cause an error if they are kept
+            generation_inputs.pop(key)
         # If the `decoder_input_ids` was created from `labels`, evict the former, so that the model can freely generate
         # (otherwise, it would continue generating from the padded `decoder_input_ids`)
         if (
@@ -235,7 +236,9 @@ class SFTTrainerGenerate(SFTTrainer):
             generated_tokens = self._pad_tensors_to_max_len(generated_tokens, gen_config.max_length)
         elif gen_config.max_new_tokens is not None and generated_tokens.shape[-1] < gen_config.max_new_tokens + 1:
             generated_tokens = self._pad_tensors_to_max_len(generated_tokens, gen_config.max_new_tokens + 1)
-
+        labels_for_gen = inputs['labels_for_gen']
+        for k in ['input_ids_for_gen', 'labels_for_gen', 'attention_mask_for_gen']:
+            inputs.pop(k)
         with torch.no_grad():
             if has_labels:
                 with self.compute_loss_context_manager():
@@ -251,7 +254,7 @@ class SFTTrainerGenerate(SFTTrainer):
             return loss, None, None
 
         if has_labels:
-            labels = inputs["labels"]
+            labels = labels_for_gen
             if labels.shape[-1] < gen_config.max_length:
                 labels = self._pad_tensors_to_max_len(labels, gen_config.max_length)
             elif gen_config.max_new_tokens is not None and labels.shape[-1] < gen_config.max_new_tokens + 1:

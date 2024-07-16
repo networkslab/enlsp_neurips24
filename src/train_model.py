@@ -46,7 +46,7 @@ def main():
     
     else:
         full_dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
-        full_dataset = full_dataset.select(indices=range(50))
+        full_dataset = full_dataset.select(indices=range(200))
         dataset = full_dataset.train_test_split(test_size=0.2) 
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, DATASET_NAME, tokenizer, args, instruction_template_ids, response_template_ids)
         
@@ -66,7 +66,7 @@ def main():
 
     #Metrics
     def compute_metrics(eval_pred):
-        train_utils.compute_metrics(eval_pred, tokenizer)
+        return train_utils.compute_metrics(eval_pred, tokenizer)
 
     #Training
     sft_config = SFTConfigGenerate(
@@ -80,7 +80,7 @@ def main():
         logging_steps=20, 
         logging_dir=get_abs_path(['logs', output_dir_name]),
         logging_first_step=True,
-        evaluation_strategy='steps', 
+        evaluation_strategy='steps',
         eval_steps=2, 
         save_strategy=IntervalStrategy.NO,
         include_inputs_for_metrics=True,
@@ -95,6 +95,7 @@ def main():
         data_collator=collator,
         compute_metrics=compute_metrics,
     )
+    trainer.neftune_noise_alpha = None
     trainer.train()
 
 def validate_args(args):
