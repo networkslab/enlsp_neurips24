@@ -1,79 +1,112 @@
 from typing import List
-
+import os
+from transformers import AddedToken
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
-from datasets import load_dataset, Split
+
+from datasets import load_dataset, Split, load_from_disk
 import argparse
 from datetime import datetime
 
-from trl import SFTConfig, SFTTrainer, DataCollatorForCompletionOnlyLM
+import numpy as np
+import copy
 
-from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
-    StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode
+from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path, list_of_ints, list_of_floats
-
+from src.utils.utils import get_abs_path
+from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
+import src.utils.train_utils as train_utils
+from src.utils.training_args import SAVED_ARGS
 
 def main():
-
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default='philschmid/dolly-15k-oai-style')
-    parser.add_argument("--arch", type=str, choices=['facebook/opt-125M', 'facebook/opt-250M'], default='facebook/opt-125M')
-    parser.add_argument("--prop_mode", type=PropagationMode, choices=list(PropagationMode), default=PropagationMode.FULL)
-
-    parser.add_argument("--skip_layers", help='Which layers to skip when using STATIC_SKIP propagation mode',
-                        type=list_of_ints,default=[])
-    parser.add_argument("--skip_probs", help='Probability of skipping each layer',
-                        type=list_of_floats ,default=[])
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--from_checkpoint",  action=argparse.BooleanOptionalAction)
-    parser.add_argument("--skip_prompt",  action=argparse.BooleanOptionalAction, default=False)
-    parser.add_argument("--multiprocess", action='store_true')
-    args = parser.parse_args()
+    parser.add_argument("--training_args", type=str, default='full_prop_args')
+    parser_args = parser.parse_args()
+    if parser_args.training_args not in SAVED_ARGS:
+        raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
+    args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
 
-    MODEL_NAME = args.arch
+    MODEL_NAME = args.model
     DATASET_NAME = args.dataset
+    
+    #tokenizer
+    sep_token = AddedToken("<SEP>", lstrip=False, rstrip=False)
+    # TODO update model to account for expanded vocab
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding_side='left', use_fast=False, sep_token=sep_token)
+    
+    #templates
+    instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False) ['input_ids'] + [tokenizer.sep_token_id]
+    response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
 
-    dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
-    split_dataset = dataset.train_test_split(test_size=0.2)
-    train_dataset = split_dataset[Split.TRAIN]
-    val_dataset = split_dataset[Split.TEST]
-
-    if args.prop_mode == PropagationMode.STATIC_SKIP:
-        propagation_config = StaticSkipPropagationConfig(skip_layers=args.skip_layers)
-    elif args.prop_mode == PropagationMode.STOCHASTIC_DROPOUT:
-        propagation_config = StochasticDropoutPropagationConfig(skip_probs=args.skip_probs)
+    #Dataset
+    if args.load_dataset_from_disk:
+        tokenized_dataset = load_from_disk(get_abs_path(['data','saved_datasets',args.dataset]))
+        tokenized_dataset_train = tokenized_dataset['train']
+        tokenized_dataset_val = tokenized_dataset['validation']
+    
     else:
-        propagation_config = PropagationConfig()
+        full_dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
+        #full_dataset = full_dataset.select(indices=range(200))
+        dataset = full_dataset.train_test_split(test_size=0.2) 
+        tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, DATASET_NAME, tokenizer, args, instruction_template_ids, response_template_ids)
+        
+  
+    #DataCollator
+    collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
+
+    #Model
+    propagation_config = args.prop_config
     adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
     adalas_config.propagation_config = propagation_config
     adalas_config.skip_prompt = args.skip_prompt
+    adalas_config.sep_token_id = tokenizer.sep_token_id
     adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME, config=adalas_config)
 
     stripped_model_name = MODEL_NAME.split('/')[-1]
     stripped_dataset_name = DATASET_NAME.split('/')[-1]
     current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
-
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
-    sft_config = SFTConfig(packing=False, output_dir=get_abs_path(['results', output_dir_name]), max_seq_length=256,
-                           report_to=['tensorboard'], logging_steps=20, logging_dir=get_abs_path(['logs', output_dir_name]),
-                           logging_first_step=True, eval_steps=500, evaluation_strategy='steps',
-                           save_strategy=IntervalStrategy.NO)
-    trainer = SFTTrainer(
+    #Metrics
+    def compute_metrics(eval_pred):
+        return train_utils.compute_metrics(eval_pred, tokenizer)
+
+    #Training
+    sft_config = SFTConfigGenerate(
+        packing=False, 
+        output_dir=get_abs_path(['logs', output_dir_name]),
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        num_train_epochs=args.train_epochs,
+        max_seq_length=args.max_seq_length,
+        report_to=['tensorboard'], 
+        logging_steps=20, 
+        logging_dir=get_abs_path(['logs', output_dir_name]),
+        logging_first_step=True,
+        evaluation_strategy='steps',
+        eval_steps=100, 
+        save_strategy=IntervalStrategy.NO,
+        include_inputs_for_metrics=True,
+        eval_with_generate=True
+        )
+    trainer = SFTTrainerGenerate(
         model=adalas,
         args=sft_config,
-        train_dataset=train_dataset,
-        eval_dataset=val_dataset,
+        train_dataset=tokenized_dataset_train,
+        eval_dataset=tokenized_dataset_val,
+        tokenizer=tokenizer,
+        data_collator=collator,
+        compute_metrics=compute_metrics,
     )
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     trainer.train()
 
 def validate_args(args):
-    if args.prop_mode == PropagationMode.STATIC_SKIP:
-        assert len(args.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
-    if args.prop_mode == PropagationMode.STOCHASTIC_DROPOUT:
-        assert len(args.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'
+    if args.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
+        assert len(args.prop_config.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
+    if args.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
+        assert len(args.prop_config.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'
 
 if __name__ == "__main__":
     main()

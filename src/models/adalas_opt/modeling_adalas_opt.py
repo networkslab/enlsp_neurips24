@@ -72,7 +72,7 @@ class AdalasOPTDecoder(OPTDecoder):
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        separation_token = 2
+        separation_token = self.config.sep_token_id
         use_cache = use_cache if use_cache is not None else self.config.use_cache
 
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -192,7 +192,7 @@ class AdalasOPTDecoder(OPTDecoder):
                 )
             
             if should_skip_layer:
-                label_mask = (torch.cumsum(input_ids == separation_token, 1) > 0)[:, :, None] # 1 where labels are
+                label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, :, None] # 1 where labels are
                 hidden_states = layer_outputs[0] * torch.logical_not(label_mask) + hidden_states * label_mask # for the label part, keep the hidden states as before. For the prompt part, update
             else:
                 hidden_states = layer_outputs[0] 
@@ -202,7 +202,7 @@ class AdalasOPTDecoder(OPTDecoder):
 
             if output_attentions:
                 if should_skip_layer:
-                    label_mask = (torch.cumsum(input_ids == separation_token, 1) > 0)[:, None, :, None] # 1 where label is
+                    label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, None, :, None] # 1 where label is
                     previous_self_attn = all_self_attns[-1]
                     current_self_attn = layer_outputs[1] * torch.logical_not(label_mask) + previous_self_attn * label_mask
                     all_self_attns += (current_self_attn,)
