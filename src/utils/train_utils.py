@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 import torch
 from trl.trainer import SFTTrainer, SFTConfig
-from trl import DataCollatorForCompletionOnlyLM
+from transformers import DataCollatorForSeq2Seq
 from dataclasses import dataclass
 import inspect
 import warnings
@@ -129,6 +129,10 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
             model_inputs['labels_for_gen'][i].append(tokenizer.eos_token_id)
         
         model_inputs['labels'] = copy.deepcopy(model_inputs['input_ids'])
+        #mask prompt from labels so loss is not calculated on it
+        for i in range(len(model_inputs["labels"])):
+            prompt_length = len(model_inputs['input_ids_for_gen'][i]) #get length of prompt we want to mask, +10 for prefix, +3 for suffix
+            model_inputs["labels"][i][:prompt_length] = [-100]*prompt_length #-100 means ignore loss for that token
         return model_inputs
         
     tokenized_dataset_train = dataset['train'].map(tokenize_function, batched=True)
@@ -287,92 +291,127 @@ class SFTTrainerGenerate(SFTTrainer):
             self._signature_columns += ['input_ids_for_gen','labels_for_gen','attention_mask_for_gen']
             #this will have no effect of those dict entries are not present
 
-class DataCollatorForCompletionOnlyLMGenerate(DataCollatorForCompletionOnlyLM):
+class DataCollatorForSeq2SeqGenerate(DataCollatorForSeq2Seq):
     
-    def torch_call(self, examples: List[Union[List[int], Any, Dict[str, Any]]]) -> Dict[str, Any]:
-        #Addition: pad 'labels','input_ids_for_gen', 'labels_for_gen' and 'attention_mask_for_gen'
-        #TODO
-        
-        batch = super(DataCollatorForCompletionOnlyLM, self).torch_call(examples)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    def __call__(self, features, return_tensors=None):
+        if return_tensors is None:
+            return_tensors = self.return_tensors
+        labels = [feature["labels"] for feature in features] if "labels" in features[0].keys() else None
+        # We have to pad the labels before calling `tokenizer.pad` as this method won't pad them and needs them of the
+        # same length to return tensors.
+        if labels is not None:
+            max_label_length = max(len(l) for l in labels)
+            if self.pad_to_multiple_of is not None:
+                max_label_length = (
+                    (max_label_length + self.pad_to_multiple_of - 1)
+                    // self.pad_to_multiple_of
+                    * self.pad_to_multiple_of
+                )
 
-        if self.instruction_template is None:
-            for i in range(len(examples)):
-                response_token_ids_start_idx = None
-
-                for idx in np.where(batch["labels"][i] == self.response_token_ids[0])[0]:
-                    # `response_token_ids` is `'### Response:\n'`, here we are just making sure that the token IDs match
-                    if (
-                        self.response_token_ids
-                        == batch["labels"][i][idx : idx + len(self.response_token_ids)].tolist()
-                    ):
-                        response_token_ids_start_idx = idx
-
-                if response_token_ids_start_idx is None:
-                    warnings.warn(
-                        f"Could not find response key `{self.response_template}` in the "
-                        f'following instance: {self.tokenizer.decode(batch["input_ids"][i])} '
-                        f"This instance will be ignored in loss calculation. "
-                        f"Note, if this happens often, consider increasing the `max_seq_length`."
+            padding_side = self.tokenizer.padding_side
+            for feature in features:
+                remainder = [self.label_pad_token_id] * (max_label_length - len(feature["labels"]))
+                if isinstance(feature["labels"], list):
+                    feature["labels"] = (
+                        feature["labels"] + remainder if padding_side == "right" else remainder + feature["labels"]
                     )
-                    batch["labels"][i, :] = self.ignore_index
+                elif padding_side == "right":
+                    feature["labels"] = np.concatenate([feature["labels"], remainder]).astype(np.int64)
                 else:
-                    response_token_ids_end_idx = response_token_ids_start_idx + len(self.response_token_ids)
+                    feature["labels"] = np.concatenate([remainder, feature["labels"]]).astype(np.int64)
+        
+        #Addition: Need to pad input_ids_for_gen, labels_for_gen and attention_mask_for_gen in the same way as labels. Copying code for padding labels
+        #Designed to not have any impact if the specified dict entries are not present. We therefore don't have to create a new class
+        ##########input_ids_for_gen########
+        input_ids_for_gen = [feature['input_ids_for_gen'] for feature in features] if "input_ids_for_gen" in features[0].keys() else None
+        # We have to pad the input_ids_for_gen before calling `tokenizer.pad` as this method won't pad them and needs them of the
+        # same length to return tensors.
+        if input_ids_for_gen is not None:
+            max_input_ids_for_gen_length = max(len(l) for l in input_ids_for_gen)
+            if self.pad_to_multiple_of is not None:
+                max_input_ids_for_gen_length = (
+                    (max_input_ids_for_gen_length + self.pad_to_multiple_of - 1)
+                    // self.pad_to_multiple_of
+                    * self.pad_to_multiple_of
+                )
 
-                    # Make pytorch loss function ignore all tokens up through the end of the response key
-                    batch["labels"][i, :response_token_ids_end_idx] = self.ignore_index
+            padding_side = self.tokenizer.padding_side
 
-        else:
-            for i in range(len(examples)):
-                response_token_ids_idxs = []
-                human_token_ids_idxs = []
-
-                for assistant_idx in np.where(batch["labels"][i] == self.response_token_ids[0])[0]:
-                    # find the indexes of the start of a response.
-                    if (
-                        self.response_token_ids
-                        == batch["labels"][i][assistant_idx : assistant_idx + len(self.response_token_ids)].tolist()
-                    ):
-                        response_token_ids_idxs.append(assistant_idx + len(self.response_token_ids))
-
-                if len(response_token_ids_idxs) == 0:
-                    warnings.warn(
-                        f"Could not find response key `{self.response_template}` in the "
-                        f'following instance: {self.tokenizer.decode(batch["input_ids"][i])} '
-                        f"This instance will be ignored in loss calculation. "
-                        f"Note, if this happens often, consider increasing the `max_seq_length`."
+            #Pad attention_mask_for_gen, using the same padding amount as input_ids_for_gen
+            attention_mask_for_gen = [feature['attention_mask_for_gen'] for feature in features] if "attention_mask_for_gen" in features[0].keys() else None
+            if attention_mask_for_gen is not None:
+                for feature in features:
+                    remainder = [0] * (max_input_ids_for_gen_length - len(feature["attention_mask_for_gen"]))
+                    if isinstance(feature["attention_mask_for_gen"], list):
+                        feature["attention_mask_for_gen"] = (
+                        feature["attention_mask_for_gen"] + remainder if padding_side == "right" else remainder + feature["attention_mask_for_gen"]
                     )
-                    batch["labels"][i, :] = self.ignore_index
-
-                human_token_ids = self.instruction_token_ids
-                for human_idx in np.where(batch["labels"][i] == human_token_ids[0])[0]:
-                    # find the indexes of the start of a human answer.
-                    if human_token_ids == batch["labels"][i][human_idx : human_idx + len(human_token_ids)].tolist():
-                        human_token_ids_idxs.append(human_idx)
-
-                if len(human_token_ids_idxs) == 0:
-                    warnings.warn(
-                        f"Could not find instruction key `{self.instruction_template}` in the "
-                        f'following instance: {self.tokenizer.decode(batch["input_ids"][i])} '
-                        f"This instance will be ignored in loss calculation. "
-                        f"Note, if this happens often, consider increasing the `max_seq_length`."
-                    )
-                    batch["labels"][i, :] = self.ignore_index
-
-                if (
-                    len(human_token_ids_idxs) > 0
-                    and len(response_token_ids_idxs) > 0
-                    and human_token_ids_idxs[0] > response_token_ids_idxs[0]
-                ):
-                    human_token_ids_idxs = [0] + human_token_ids_idxs
-
-                for idx, (start, end) in enumerate(zip(human_token_ids_idxs, response_token_ids_idxs)):
-                    # Make pytorch loss function ignore all non response tokens
-                    if idx != 0:
-                        batch["labels"][i, start:end] = self.ignore_index
+                    elif padding_side == "right":
+                        feature["attention_mask_for_gen"] = np.concatenate([feature["attention_mask_for_gen"], remainder])
                     else:
-                        batch["labels"][i, :end] = self.ignore_index
+                        feature["attention_mask_for_gen"] = np.concatenate([remainder, feature["attention_mask_for_gen"]])
 
-                if len(response_token_ids_idxs) < len(human_token_ids_idxs):
-                    batch["labels"][i, human_token_ids_idxs[-1] :] = self.ignore_index
 
-        return batch
+            for feature in features:
+                remainder = [self.tokenizer.pad_token_id] * (max_input_ids_for_gen_length - len(feature["input_ids_for_gen"])) #using self.tokenizer.pad_token_id to be consistent
+                if isinstance(feature["input_ids_for_gen"], list):
+                    feature["input_ids_for_gen"] = (
+                        feature["input_ids_for_gen"] + remainder if padding_side == "right" else remainder + feature["input_ids_for_gen"]
+                    )
+                elif padding_side == "right":
+                    feature["input_ids_for_gen"] = np.concatenate([feature["input_ids_for_gen"], remainder]).astype(np.int64)
+                else:
+                    feature["input_ids_for_gen"] = np.concatenate([remainder, feature["input_ids_for_gen"]]).astype(np.int64)
+        #######################
+
+        ##########labels_for_gen########
+        labels_for_gen = [feature["labels_for_gen"] for feature in features] if "labels_for_gen" in features[0].keys() else None
+        # We have to pad the labels_for_gen before calling `tokenizer.pad` as this method won't pad them and needs them of the
+        # same length to return tensors.
+        if labels_for_gen is not None:
+            max_labels_for_gen_length = max(len(l) for l in labels_for_gen)
+            if self.pad_to_multiple_of is not None:
+                max_labels_for_gen_length = (
+                    (max_labels_for_gen_length + self.pad_to_multiple_of - 1)
+                    // self.pad_to_multiple_of
+                    * self.pad_to_multiple_of
+                )
+
+            padding_side = self.tokenizer.padding_side
+            for feature in features:
+                remainder = [self.label_pad_token_id] * (max_labels_for_gen_length - len(feature["labels_for_gen"]))
+                if isinstance(feature["labels_for_gen"], list):
+                    feature["labels_for_gen"] = (
+                        feature["labels_for_gen"] + remainder if padding_side == "right" else remainder + feature["labels_for_gen"]
+                    )
+                elif padding_side == "right":
+                    feature["labels_for_gen"] = np.concatenate([feature["labels_for_gen"], remainder]).astype(np.int64)
+                else:
+                    feature["labels_for_gen"] = np.concatenate([remainder, feature["labels_for_gen"]]).astype(np.int64)
+
+        ##############################
+        #End of Addition
+
+        features = self.tokenizer.pad(
+            features,
+            padding=self.padding,
+            max_length=self.max_length,
+            pad_to_multiple_of=self.pad_to_multiple_of,
+            return_tensors=return_tensors,
+        )
+
+        # prepare decoder_input_ids
+        if (
+            labels is not None
+            and self.model is not None
+            and hasattr(self.model, "prepare_decoder_input_ids_from_labels")
+        ):
+            decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=features["labels"])
+            features["decoder_input_ids"] = decoder_input_ids
+
+        return features
+    
+    

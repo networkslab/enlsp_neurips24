@@ -12,7 +12,7 @@ import copy
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
 from src.utils.utils import get_abs_path
-from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForCompletionOnlyLMGenerate
+from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
@@ -52,7 +52,7 @@ def main():
         
   
     #DataCollator
-    collator = DataCollatorForCompletionOnlyLMGenerate(instruction_template=instruction_template_ids, response_template=response_template_ids, tokenizer=tokenizer, mlm=False)
+    collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
     #Model
     propagation_config = args.prop_config
