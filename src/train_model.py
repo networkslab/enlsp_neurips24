@@ -19,7 +19,6 @@ import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
 def main():
-    os.environ["TOKENIZERS_PARALLELISM"] = "true"
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_args", type=str, default='full_prop_args')
     parser_args = parser.parse_args()
@@ -27,6 +26,15 @@ def main():
         raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
     args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
+    
+    if args.ddp:
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        rank = os.environ['LOCAL_RANK'] #rank when using DDP
+        deepspeed = get_abs_path(['src','utils',args.deepspeed]) if args.deepspeed is not None else None
+    else:
+        os.environ["TOKENIZERS_PARALLELISM"] = "true"
+        rank = 0
+        deepspeed = None
 
     MODEL_NAME = args.model
     DATASET_NAME = args.dataset
@@ -105,7 +113,10 @@ def main():
         eval_steps=args.eval_steps, 
         save_strategy=IntervalStrategy.NO,
         include_inputs_for_metrics=True,
-        eval_with_generate=True
+        eval_with_generate=True,
+        deepspeed=deepspeed,
+        local_rank=rank if args.ddp else None,
+        ddp_find_unused_parameters=False,
         )
     trainer = SFTTrainerGenerate(
         model=adalas,

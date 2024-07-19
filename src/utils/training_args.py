@@ -21,9 +21,12 @@ class TrainingArgs:
     multiprocess: bool = True
     instruction_template: str = "### User:"
     response_template: str = "\n### Assistant:"
+    ddp: bool = True
     skip_prompt: bool = False
     save_dataset_dir: Optional[str] = None
     save_model_pretrain_dir: Optional[str] = None
+    deepspeed: Optional[str] = None
+
 
     
 
@@ -41,7 +44,8 @@ SAVED_ARGS = {
         load_dataset_from_disk=True,
         load_model_from_disk=True,
         dataset='dolly-15k',
-        model="results/pre_train/opt-125M-static-skip"
+        model="results/pre_train/opt-125M-static-skip",
+        deepspeed='ds_config.json'
     ),
     "static_skip_args": TrainingArgs(
         prop_config=StaticSkipPropagationConfig(skip_layers=[2, 6, 8]),
