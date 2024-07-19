@@ -1,8 +1,14 @@
 from typing import List
 import os
+import sys
+#Needed to import modules from parent folder
+module_path = os.path.abspath(os.path.join(''))
+if module_path not in sys.path:
+    sys.path.append(module_path)
+    
+import transformers    
 from transformers import AddedToken
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
-
 
 from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
@@ -19,6 +25,8 @@ import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
 def main():
+    print(os.getcwd())
+    transformers.logging.set_verbosity_info()
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_args", type=str, default='full_prop_args')
     parser_args = parser.parse_args()
@@ -30,7 +38,7 @@ def main():
     if args.ddp:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         rank = os.environ['LOCAL_RANK'] #rank when using DDP
-        deepspeed = get_abs_path(['src','utils',args.deepspeed]) if args.deepspeed is not None else None
+        deepspeed = get_abs_path(['src','utils'])+ args.deepspeed if args.deepspeed is not None else None
     else:
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         rank = 0
