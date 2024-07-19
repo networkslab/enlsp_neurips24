@@ -7,12 +7,15 @@ from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipP
 @dataclass
 class TrainingArgs:
     load_dataset_from_disk: bool = False
+    load_model_from_disk: bool = False
     dataset: str = 'databricks/databricks-dolly-15k'
     model: str = 'facebook/opt-125M'
     prop_config: PropagationConfig = PropagationConfig()
     batch_size: int = 10
     train_epochs: int = 3
     max_seq_length: int = 256
+    logging_steps:int = 20
+    eval_steps:int = 100
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
     multiprocess: bool = True
@@ -30,6 +33,15 @@ SAVED_ARGS = {
         prop_config=PropagationConfig(),
         batch_size=10,
         train_epochs=3,
+    ),
+    "static_skip_args_load": TrainingArgs(
+        prop_config=StaticSkipPropagationConfig(skip_layers=[2, 6, 8]),
+        batch_size=5,
+        train_epochs=3,
+        load_dataset_from_disk=True,
+        load_model_from_disk=True,
+        dataset='dolly-15k',
+        model="results/pre_train/opt-125M-static-skip"
     ),
     "static_skip_args": TrainingArgs(
         prop_config=StaticSkipPropagationConfig(skip_layers=[2, 6, 8]),

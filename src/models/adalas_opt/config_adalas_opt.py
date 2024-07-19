@@ -16,6 +16,13 @@ class PropagationConfig:
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value}
+    
+    @staticmethod
+    def from_dict(propagation_dict):
+        for mode in PropagationMode:
+            if propagation_dict['propagation_mode'] == mode.value:
+                del propagation_dict['propagation_mode']
+                return MAP_PROPAGATION_MODES[mode.value](**propagation_dict)
 
 
 class StaticSkipPropagationConfig(PropagationConfig):
@@ -34,6 +41,11 @@ class StochasticDropoutPropagationConfig(PropagationConfig):
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value, 'skip_probs': self.skip_probs}
 
+MAP_PROPAGATION_MODES = {
+    'full': PropagationConfig,
+    'static_skip': StaticSkipPropagationConfig,
+    'stochastic_dropout': StochasticDropoutPropagationConfig
+}
 
 class AdalasOPTConfig(OPTConfig):
     model_type = 'adalas_opt'
@@ -85,7 +97,10 @@ class AdalasOPTConfig(OPTConfig):
                          enable_bias,
                          layer_norm_elementwise_affine,
                          **kwargs)
-        self.propagation_config = propagation_config
+        if isinstance(propagation_config,dict):
+            self.propagation_config = PropagationConfig.from_dict(propagation_config)
+        else:
+            self.propagation_config = propagation_config
         self.skip_prompt = skip_prompt
         self.sep_token_id = sep_token_id
 
@@ -96,3 +111,5 @@ class AdalasOPTConfig(OPTConfig):
             config_dict = self.to_dict()
         config_dict['propagation_config'] = self.propagation_config.to_dict()
         return json.dumps(config_dict, indent=2, sort_keys=True) + "\n"
+
+    

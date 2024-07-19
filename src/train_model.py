@@ -3,7 +3,8 @@ import os
 from transformers import AddedToken
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
 
-from datasets import load_dataset, Split, load_from_disk
+
+from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
 from datetime import datetime
 
@@ -33,7 +34,11 @@ def main():
     #tokenizer
     sep_token = AddedToken("<SEP>", lstrip=False, rstrip=False)
     # TODO update model to account for expanded vocab
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, padding_side='left', use_fast=False, sep_token=sep_token)
+    tokenizer = AutoTokenizer.from_pretrained(
+        get_abs_path([MODEL_NAME]) if args.load_model_from_disk else MODEL_NAME, 
+        padding_side='left', use_fast=False, 
+        sep_token=sep_token
+        )
     
     #templates
     instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False) ['input_ids'] + [tokenizer.sep_token_id]
@@ -41,27 +46,39 @@ def main():
 
     #Dataset
     if args.load_dataset_from_disk:
-        tokenized_dataset = load_from_disk(get_abs_path(['data','saved_datasets',args.dataset]))
-        tokenized_dataset_train = tokenized_dataset['train']
-        tokenized_dataset_val = tokenized_dataset['validation']
+        tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
     
     else:
         full_dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
         #full_dataset = full_dataset.select(indices=range(200))
         dataset = full_dataset.train_test_split(test_size=0.2) 
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, DATASET_NAME, tokenizer, args, instruction_template_ids, response_template_ids)
+        tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    
+        if args.save_dataset_dir is not None:
+            tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
+        
         
   
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
     #Model
-    propagation_config = args.prop_config
-    adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
-    adalas_config.propagation_config = propagation_config
-    adalas_config.skip_prompt = args.skip_prompt
-    adalas_config.sep_token_id = tokenizer.sep_token_id
-    adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME, config=adalas_config)
+    if args.load_model_from_disk:
+        adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([MODEL_NAME]))
+        adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([MODEL_NAME]),config=adalas_config)
+        print(f"Loading model from {MODEL_NAME}. Model config parameters will be ignored")
+    else:
+        propagation_config = args.prop_config
+        adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
+        adalas_config.propagation_config = propagation_config
+        adalas_config.skip_prompt = args.skip_prompt
+        adalas_config.sep_token_id = tokenizer.sep_token_id
+        adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME,config=adalas_config)
+    
+    if args.save_model_pretrain_dir is not None:
+        tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
+        adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
     stripped_model_name = MODEL_NAME.split('/')[-1]
     stripped_dataset_name = DATASET_NAME.split('/')[-1]
@@ -81,11 +98,11 @@ def main():
         num_train_epochs=args.train_epochs,
         max_seq_length=args.max_seq_length,
         report_to=['tensorboard'], 
-        logging_steps=20, 
+        logging_steps=args.logging_steps, 
         logging_dir=get_abs_path(['logs', output_dir_name]),
         logging_first_step=True,
         evaluation_strategy='steps',
-        eval_steps=100, 
+        eval_steps=args.eval_steps, 
         save_strategy=IntervalStrategy.NO,
         include_inputs_for_metrics=True,
         eval_with_generate=True
@@ -93,8 +110,8 @@ def main():
     trainer = SFTTrainerGenerate(
         model=adalas,
         args=sft_config,
-        train_dataset=tokenized_dataset_train,
-        eval_dataset=tokenized_dataset_val,
+        train_dataset=tokenized_dataset['train'],
+        eval_dataset=tokenized_dataset['validation'],
         tokenizer=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
