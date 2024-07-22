@@ -16,7 +16,7 @@ from src.utils.training_args import DATASET_KEYS
 import copy
 
 
-def compute_metrics(eval_pred,tokenizer, samples_to_save = 5):
+def compute_metrics(eval_pred,tokenizer, samples_to_save = 50):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -154,6 +154,7 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
 class SFTConfigGenerate(SFTConfig):
     
     eval_with_generate: Optional[bool] = False
+    max_new_tokens: Optional[int] = 10
 
 
 class SFTTrainerGenerate(SFTTrainer):
@@ -217,7 +218,7 @@ class SFTTrainerGenerate(SFTTrainer):
             and generation_inputs["labels"].shape == generation_inputs["decoder_input_ids"].shape
         ):
             generation_inputs = {k: v for k, v in inputs.items() if k != "decoder_input_ids"}
-        generated_tokens = self.model.generate(**generation_inputs, max_new_tokens=100) # TODO pass max_new_tokens as a config
+        generated_tokens = self.model.generate(**generation_inputs, max_new_tokens=self.args.max_new_tokens)
        
         for k in range(generated_tokens.size(dim=0)):
             prompt_length = generation_inputs['input_ids'][k].size(dim=0)
