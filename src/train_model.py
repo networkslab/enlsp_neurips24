@@ -10,6 +10,8 @@ import transformers
 from transformers import AddedToken
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
 
+import torch
+
 from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
 from datetime import datetime
@@ -26,7 +28,6 @@ from src.utils.training_args import SAVED_ARGS
 
 def main():
     print(os.getcwd())
-    transformers.logging.set_verbosity_info()
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_args", type=str, default='full_prop_args')
     parser_args = parser.parse_args()
@@ -34,7 +35,8 @@ def main():
         raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
     args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
-    
+
+    transformers.logging.set_verbosity_info()
     if args.ddp:
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         rank = os.environ['LOCAL_RANK'] #rank when using DDP
@@ -71,7 +73,7 @@ def main():
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, DATASET_NAME, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
     
-        if args.save_dataset_dir is not None:
+        if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
         
         
@@ -91,8 +93,11 @@ def main():
         adalas_config.skip_prompt = args.skip_prompt
         adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME,config=adalas_config)
+        
+    if args.fp16:
+        adalas = adalas.to(torch.float16)
     
-    if args.save_model_pretrain_dir is not None:
+    if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
@@ -104,13 +109,16 @@ def main():
     #Metrics
     def compute_metrics(eval_pred):
         return train_utils.compute_metrics(eval_pred, tokenizer)
-
+   
     #Training
     sft_config = SFTConfigGenerate(
+        learning_rate = args.learning_rate,
         packing=False, 
         output_dir=get_abs_path(['logs', output_dir_name]),
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps= args.gradient_accumulation_steps,
+        gradient_checkpointing = args.gradient_checkpointing,
         num_train_epochs=args.train_epochs,
         max_seq_length=args.max_seq_length,
         report_to=['tensorboard'], 
@@ -119,9 +127,10 @@ def main():
         logging_first_step=True,
         evaluation_strategy='steps',
         eval_steps=args.eval_steps, 
-        save_strategy=IntervalStrategy.NO,
+        save_strategy=args.save_strategy,
         include_inputs_for_metrics=True,
         eval_with_generate=True,
+        max_new_tokens=args.max_new_tokens,
         deepspeed=deepspeed,
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,
