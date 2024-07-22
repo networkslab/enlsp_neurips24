@@ -1,10 +1,6 @@
 from typing import List
 import os
 import sys
-#Needed to import modules from parent folder
-module_path = os.path.abspath(os.path.join(''))
-if module_path not in sys.path:
-    sys.path.append(module_path)
     
 import transformers    
 from transformers import AddedToken
@@ -27,7 +23,6 @@ import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
 def main():
-    print(os.getcwd())
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_args", type=str, default='full_prop_args')
     parser_args = parser.parse_args()
@@ -46,14 +41,14 @@ def main():
         rank = 0
         deepspeed = None
 
-    MODEL_NAME = args.model
-    DATASET_NAME = args.dataset
+    model_name = args.model
+    dataset_name = args.dataset
     
     #tokenizer
     sep_token = AddedToken("<SEP>", lstrip=False, rstrip=False)
     # TODO update model to account for expanded vocab
     tokenizer = AutoTokenizer.from_pretrained(
-        get_abs_path([MODEL_NAME]) if args.load_model_from_disk else MODEL_NAME, 
+        get_abs_path([model_name]) if args.load_model_from_disk else model_name, 
         padding_side='left', use_fast=False, 
         sep_token=sep_token
         )
@@ -67,10 +62,10 @@ def main():
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
     
     else:
-        full_dataset = load_dataset(DATASET_NAME, split=Split.TRAIN)
+        full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
         #full_dataset = full_dataset.select(indices=range(200))
         dataset = full_dataset.train_test_split(test_size=0.2) 
-        tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, DATASET_NAME, tokenizer, args, instruction_template_ids, response_template_ids)
+        tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
     
         if args.save_dataset_dir is not None and rank == 0:
@@ -83,16 +78,16 @@ def main():
 
     #Model
     if args.load_model_from_disk:
-        adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([MODEL_NAME]))
-        adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([MODEL_NAME]),config=adalas_config)
-        print(f"Loading model from {MODEL_NAME}. Model config parameters will be ignored")
+        adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
+        adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
+        print(f"Loading model from {model_name}. Model config parameters will be ignored")
     else:
         propagation_config = args.prop_config
-        adalas_config = AdalasOPTConfig.from_pretrained(MODEL_NAME)
+        adalas_config = AdalasOPTConfig.from_pretrained(model_name)
         adalas_config.propagation_config = propagation_config
         adalas_config.skip_prompt = args.skip_prompt
         adalas_config.sep_token_id = tokenizer.sep_token_id
-        adalas = AdalasOPTForCausalLM.from_pretrained(MODEL_NAME,config=adalas_config)
+        adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
         
     if args.fp16:
         adalas = adalas.to(torch.float16)
@@ -101,8 +96,8 @@ def main():
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
-    stripped_model_name = MODEL_NAME.split('/')[-1]
-    stripped_dataset_name = DATASET_NAME.split('/')[-1]
+    stripped_model_name = model_name.split('/')[-1]
+    stripped_dataset_name = dataset_name.split('/')[-1]
     current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
