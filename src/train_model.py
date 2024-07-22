@@ -1,7 +1,5 @@
 from typing import List
 import os
-import sys
-    
 import transformers    
 from transformers import AddedToken
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
