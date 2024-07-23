@@ -3,11 +3,14 @@ from typing import List
 from transformers.models.opt import OPTConfig
 from enum import Enum
 
+from src.models.controllers.controller_types import ControllerType
+
 
 class PropagationMode(Enum):
     FULL = 'full'
     STATIC_SKIP = 'static_skip'
     STOCHASTIC_DROPOUT = 'stochastic_dropout'
+    DYNAMIC = 'dynamic'
 
 
 class PropagationConfig:
@@ -41,10 +44,25 @@ class StochasticDropoutPropagationConfig(PropagationConfig):
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value, 'skip_probs': self.skip_probs}
 
+class DynamicPropagationConfig(PropagationConfig):
+    '''Uses trainable gates to determine which layers to skip or execute'''
+    def __init__(self, controller_layers, controller_input_size = None, gumbel_temperature = 1.2, controller_type = ControllerType.MLP_GUMBEL):
+        super().__init__(PropagationMode.DYNAMIC)
+        self.gumbel_temperature = gumbel_temperature # tau parameter
+        self.controller_input_size = controller_input_size
+        self.controller_type = controller_type
+        self.controller_layers = controller_layers
+
+    def to_dict(self):
+        return {'propagation_mode': self.propagation_mode.value, 'gumbel_temp': self.gumbel_temperature,
+                'controller_input_size': self.controller_input_size, 'controller_type': self.controller_type.value,
+                'controller_layers': self.controller_layers}
+
 MAP_PROPAGATION_MODES = {
     'full': PropagationConfig,
     'static_skip': StaticSkipPropagationConfig,
-    'stochastic_dropout': StochasticDropoutPropagationConfig
+    'stochastic_dropout': StochasticDropoutPropagationConfig,
+    'dynamic': DynamicPropagationConfig
 }
 
 class AdalasOPTConfig(OPTConfig):
