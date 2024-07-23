@@ -1,8 +1,12 @@
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+from transformers.trainer_utils import EvaluationStrategy
+
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
-    StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode
+    StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
+
 
 @dataclass
 class TrainingArgs:
@@ -22,6 +26,8 @@ class TrainingArgs:
     save_strategy: str = "no"
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
+    load_best_model_at_end: bool = True,
+    save_total_limit: int = 1,
     multiprocess: bool = True
     instruction_template: str = "### User:"
     response_template: str = "\n### Assistant:"
@@ -37,7 +43,32 @@ class TrainingArgs:
     
 
 SAVED_ARGS = {
-    
+    "joud_test": TrainingArgs(
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10]),
+        batch_size=4,
+        model='facebook/opt-125m',
+        train_epochs=3,
+        eval_steps = 200,
+        save_strategy = EvaluationStrategy.NO,
+        ddp=False,
+        deepspeed='ds_config.json',
+        max_new_tokens=10,
+        gradient_checkpointing=False
+    ),
+    "full_prop_opt125_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        model='facebook/opt-125m',
+        train_epochs=3,
+        eval_steps = 200,
+        save_strategy = "steps",
+        save_steps = 200,
+        fp16=False,
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        max_new_tokens=10,
+    ),
     "full_prop_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=4,
