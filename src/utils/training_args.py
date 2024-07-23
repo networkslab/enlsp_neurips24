@@ -23,6 +23,7 @@ class TrainingArgs:
     max_seq_length: int = 768
     logging_steps:int = 20
     eval_steps:int = 100
+    save_steps:int=100
     save_strategy: str = "no"
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
