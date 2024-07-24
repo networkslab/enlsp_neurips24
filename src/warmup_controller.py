@@ -31,7 +31,6 @@ def main():
         raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
     args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
-    checkpoint_path = '/home/joud/code/ADALaS/checkpoints/opt125-dolly/pytorch_model.bin'
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
@@ -66,7 +65,7 @@ def main():
 
     else:
         full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-        # full_dataset = full_dataset.select(indices=range(250))
+        # full_dataset = full_dataset.select(indices=range(600))
         dataset = full_dataset.train_test_split(test_size=0.2)
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
@@ -74,14 +73,13 @@ def main():
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
 
-
-
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
     #Model
     if args.load_model_from_disk:
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
+        adalas_config.propagation_config = args.prop_config
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
         print(f"Loading model from {model_name}. Model config parameters will be ignored")
     else:
@@ -94,11 +92,6 @@ def main():
 
     if args.fp16:
         adalas = adalas.to(torch.float16)
-    if checkpoint_path is not None:
-        model_checkpoint = torch.load(checkpoint_path)
-        missing_keys, unexpected_keys = adalas.load_state_dict(model_checkpoint, strict=False)
-        print(f'Missing keys: {missing_keys}')
-        print(f'unexpected_keys keys: {missing_keys}')
     adalas.freeze_backbone_and_head()
 
     if args.save_model_pretrain_dir is not None and rank == 0:
@@ -121,8 +114,8 @@ def main():
         output_dir=get_abs_path(['logs', output_dir_name]),
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
-        # gradient_accumulation_steps= args.gradient_accumulation_steps,
-        # gradient_checkpointing = args.gradient_checkpointing,
+        gradient_accumulation_steps= args.gradient_accumulation_steps,
+        gradient_checkpointing = args.gradient_checkpointing,
         num_train_epochs=args.train_epochs,
         max_seq_length=args.max_seq_length,
         report_to=['tensorboard'],
@@ -135,9 +128,9 @@ def main():
         include_inputs_for_metrics=True,
         eval_with_generate=True,
         max_new_tokens=args.max_new_tokens,
-        # deepspeed=deepspeed,
-        # local_rank=rank if args.ddp else None,
-        # ddp_find_unused_parameters=False,
+        deepspeed=deepspeed,
+        local_rank=rank if args.ddp else None,
+        ddp_find_unused_parameters=False,
     )
     summary_writer = SummaryWriter(sft_config.logging_dir)
     summary_writer.add_custom_scalars(train_utils.get_tensorboard_training_layout(adalas.model.decoder))

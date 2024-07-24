@@ -48,15 +48,16 @@ SAVED_ARGS = {
     "controller_warmup": TrainingArgs(
         prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10]),
         batch_size=4,
-        model='facebook/opt-125m',
+        model='logs/opt-125m/databricks-dolly-15k_23-07_14-13-33/checkpoint-8000',
         train_epochs=3,
         eval_steps = 200,
         save_strategy = EvaluationStrategy.NO,
         ddp=False,
         fp16=False,
+        load_model_from_disk=True,
         deepspeed='ds_config.json',
         max_seq_length=256,
-        gradient_checkpointing=False
+        gradient_checkpointing=True
     ),
     "full_prop_opt125_args": TrainingArgs(
         prop_config=PropagationConfig(),
