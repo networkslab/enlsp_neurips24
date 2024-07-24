@@ -66,7 +66,7 @@ class AdalasOPTDecoder(OPTDecoder):
         self.post_init()
 
     def _init_metrics(self):
-        self.metrics = {'percentage_skip': [[] for _ in range(len(self.controller_layers))]}
+        self.metrics = {'percentage_skip': [[] for _ in range(len(self.layers))]}
 
     def forward(
         self,
@@ -148,8 +148,7 @@ class AdalasOPTDecoder(OPTDecoder):
                     )
         for idx, decoder_layer in enumerate(self.layers):
             if self.prop_config.propagation_mode in [PropagationMode.DYNAMIC, PropagationMode.STATIC_SKIP, PropagationMode.FULL]:
-                rel_controller_idx = self.controller_layers.index(idx)
-                controller = self.controllers[rel_controller_idx]
+                controller = self.controllers[idx]
                 controller_out = controller(hidden_states) # [:, :, 0] no  skip, [:, :, 1] skip
                 gumbel_skip = controller_out[:, :, 1]
                 gumbel_keep = controller_out[:, :, 0]
@@ -200,7 +199,7 @@ class AdalasOPTDecoder(OPTDecoder):
                         generation_lengths = torch.sum(label_mask, dim = -1)
                         num_skips_on_generation = torch.sum(skip_mask, dim = -1)
                         percentage_skips = num_skips_on_generation / generation_lengths
-                        self.metrics['percentage_skip'][rel_controller_idx].append(percentage_skips)
+                        self.metrics['percentage_skip'][idx].append(percentage_skips)
                 if use_cache:
                     next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
@@ -241,20 +240,19 @@ class AdalasOPTDecoder(OPTDecoder):
         else:
             controller_input_dim = self.prop_config.controller_input_size
         if self.prop_config.controller_type == ControllerType.MLP_GUMBEL:
-            self.controller_layers = self.prop_config.controller_layers
-            self.controllers = nn.ModuleList([
-                MLPGumbelSoftmaxController(controller_input_dim, tau=self.prop_config.gumbel_temperature)
-                for _ in range(len(self.controller_layers))])
-        elif self.prop_config.controller_type == ControllerType.STATIC:
-            self.controller_layers = []
             self.controllers = nn.ModuleList([])
+            for layer in range(len(self.layers)):
+                if layer in self.prop_config.controller_layers:
+                    self.controllers.append(MLPGumbelSoftmaxController(controller_input_dim, tau=self.prop_config.gumbel_temperature))
+                else:
+                    self.controllers.append(StaticController(False))
+        elif self.prop_config.controller_type == ControllerType.STATIC:
+            self.controllers = []
             if self.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
                 for layer in range(len(self.layers)):
-                    self.controller_layers.append(layer)
                     self.controllers.append(StaticController(layer in self.prop_config.skip_layers))
             elif self.prop_config.propagation_mode == PropagationMode.FULL:
                 for layer in range(len(self.layers)):
-                    self.controller_layers.append(layer)
                     self.controllers.append(StaticController(False))
         else:
             raise Exception('Unimplemented controller type')

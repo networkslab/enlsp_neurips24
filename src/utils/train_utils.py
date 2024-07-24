@@ -451,17 +451,16 @@ class MetricsCallback(TensorBoardCallback):
 
     def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         percentage_skip_per_controller_per_seq = self.model.metrics['percentage_skip']
-        for rel_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
-            abs_controller_layer = self.model.controller_layers[rel_idx]
+        for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
             avg_perc_skip = torch.mean(torch.cat(skip_per_seq)).item()
-            self.tb_writer.add_scalar(f'perc_skip/{abs_controller_layer}', avg_perc_skip, state.global_step)
+            self.tb_writer.add_scalar(f'perc_skip/{layer_idx}', avg_perc_skip, state.global_step)
         self.model.flush_metrics()
 
 
 def get_tensorboard_training_layout(decoder: AdalasOPTDecoder):
     layout = {
         "Additional training metrics": {
-            "perc_skip": ["Multiline", [f'perc_skip/{cont_layer}' for cont_layer in decoder.controller_layers]],
+            "perc_skip": ["Multiline", [f'perc_skip/{cont_layer}' for cont_layer in range(len(decoder.layers))]],
         },
     }
     return layout
