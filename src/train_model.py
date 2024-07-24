@@ -2,7 +2,7 @@ from typing import List
 import os
 import transformers    
 from transformers import AddedToken
-from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
+from transformers import AutoTokenizer
 
 import torch
 
@@ -10,13 +10,10 @@ from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
 from datetime import datetime
 
-import numpy as np
-import copy
-
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path
-from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate, fix_the_seed
+from src.utils.utils import get_abs_path, fix_the_seed
+from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
