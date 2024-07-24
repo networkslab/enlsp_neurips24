@@ -5,6 +5,13 @@ import numpy as np
 import random
 import torch
 
+def fix_the_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.use_deterministic_algorithms(True)
+
 def get_path_to_project_root():
     cwd = os.getcwd()
     root_abs_path_index = cwd.split("/").index("ADALaS")

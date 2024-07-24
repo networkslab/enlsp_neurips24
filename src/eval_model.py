@@ -2,7 +2,7 @@ from typing import List
 import os
 import transformers
 from transformers import AddedToken
-from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
+from transformers import AutoTokenizer
 
 import torch
 
@@ -10,15 +10,14 @@ from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
 from datetime import datetime
 
-import numpy as np
-import copy
-
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path
+from src.utils.utils import get_abs_path, fix_the_seed
 from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
+
+SEED = 42
 
 def main():
     parser = argparse.ArgumentParser()
@@ -28,6 +27,8 @@ def main():
         raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
     args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
+    
+    fix_the_seed(SEED)
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
@@ -60,7 +61,7 @@ def main():
     else:
         full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
         #full_dataset = full_dataset.select(indices=range(200))
-        dataset = full_dataset.train_test_split(test_size=0.2)
+        dataset = full_dataset.train_test_split(test_size=0.2,seed=SEED)
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
 
