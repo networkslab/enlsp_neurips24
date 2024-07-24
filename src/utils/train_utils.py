@@ -14,9 +14,10 @@ import warnings
 from collections.abc import Mapping
 from src.utils.training_args import DATASET_KEYS
 import copy
+import pandas as pd
 
 
-def compute_metrics(eval_pred,tokenizer, samples_to_save = 50):
+def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 50):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -61,7 +62,27 @@ def compute_metrics(eval_pred,tokenizer, samples_to_save = 50):
     
     with open(f'{get_abs_path(["logs"])}/examples.json', "w", encoding="utf-8") as f:
         json.dump(examples, f, ensure_ascii=False, indent=4)
-    
+
+    if save_rouge:
+        #save individual rouge scores and sequence length
+        r = rouge_score.compute(predictions=predictions, references=labels,
+                                use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
+                                use_aggregator=False)
+        label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
+        prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
+        prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
+        #save to pandas dataframe
+        df = pd.DataFrame(
+            {
+                "rouge1": r["rouge1"],
+                "rouge2": r["rouge2"],
+                "rougeL": r["rougeL"],
+                "label_length": label_lengths,
+                "prediction_length": prediction_lengths,
+                "prompt_length": prompt_lengths
+            })
+        #save to csv
+        df.to_csv(f'{get_abs_path(["logs"])}/rouge_scores.csv', index=False)
     return {k: round(v,4) for k,v in result.items()}
 
 

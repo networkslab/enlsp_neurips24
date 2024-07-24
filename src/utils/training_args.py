@@ -18,6 +18,7 @@ class TrainingArgs:
     train_epochs: int = 3
     max_seq_length: int = 768
     logging_steps:int = 20
+    eval_strategy: str = "steps"
     eval_steps:int = 100
     save_strategy: str = "no"
     prompt_seq_length: float = 0.7
@@ -27,7 +28,7 @@ class TrainingArgs:
     response_template: str = "\n### Assistant:"
     ddp: bool = True
     skip_prompt: bool = False
-    max_new_tokens: int = 100
+    max_new_tokens: int = 200
     fp16: bool = True
     save_dataset_dir: Optional[str] = None
     save_model_pretrain_dir: Optional[str] = None
@@ -49,34 +50,47 @@ SAVED_ARGS = {
         deepspeed='ds_config.json',
         gradient_accumulation_steps=2,
         max_new_tokens=10,
+        fp16 = False
     ),
-    "full_prop_args_server_1": TrainingArgs(
-        model='facebook/opt-350M',
-        dataset='databricks/databricks-dolly-15k',
+    "full_prop_125_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=4,
+        model='facebook/opt-125m',
         train_epochs=3,
-        save_model_pretrain_dir='opt-350M-full',
-        save_dataset_dir='dolly-15k',
-        max_seq_length=1024,
+        max_seq_length=256,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
         ddp=True,
-        logging_steps=20,
-        eval_steps=400,
-        deepspeed='ds_config.json'
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        max_new_tokens=100,
+        fp16 = False
     ),
-    "full_prop_args_server_2": TrainingArgs(
-        load_dataset_from_disk= True,
-        load_model_from_disk= True,
-        model='results/pre_train/opt-350M-full',
-        dataset='dolly-15k',
+    "full_prop_350_args": TrainingArgs(
         prop_config=PropagationConfig(),
-        batch_size=2,
+        batch_size=4,
+        model='facebook/opt-350m',
         train_epochs=3,
-        max_seq_length=1024,
-        ddp=False,
-        logging_steps=20,
-        eval_steps=200,
-        #deepspeed='ds_config.json'
+        max_seq_length=768,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        fp16 = False
+    ),
+    "full_prop_1.3_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        model='facebook/opt-1.3b',
+        train_epochs=5,
+        max_seq_length=768,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        fp16 = True
     ),
     "static_skip_args_load": TrainingArgs(
         prop_config=StaticSkipPropagationConfig(skip_layers=[2, 6, 8]),
@@ -98,7 +112,36 @@ SAVED_ARGS = {
         prop_config=StochasticDropoutPropagationConfig(skip_probs=[0.0]*4 + [0.3]*8),
         batch_size=10,
         train_epochs=3,
-    )
+    ),
+    "eval_full_prop_125_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        model='results/opt-125m/databricks-dolly-15k_24-07_10-17-36/checkpoint-1501',
+        load_model_from_disk = True,
+        train_epochs=3,
+        max_seq_length=256,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=False,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        max_new_tokens=100,
+        fp16 = False
+    ),
+    "eval_full_prop_350_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        model='results/opt-350m/databricks-dolly-15k_23-07_21-08-20/checkpoint-564',
+        load_model_from_disk = True,
+        train_epochs=3,
+        max_seq_length=768,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=False,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        fp16 = False
+    ),
 }
 
 DATASET_KEYS ={
