@@ -112,7 +112,22 @@ SAVED_ARGS = {
         prop_config=StochasticDropoutPropagationConfig(skip_probs=[0.0]*4 + [0.3]*8),
         batch_size=10,
         train_epochs=3,
-    )
+    ),
+    "eval_full_prop_125_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        model='results/opt-125m/databricks-dolly-15k_24-07_10-17-36/checkpoint-1501',
+        load_model_from_disk = True,
+        train_epochs=3,
+        max_seq_length=256,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=False,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        max_new_tokens=100,
+        fp16 = False
+    ),
 }
 
 DATASET_KEYS ={

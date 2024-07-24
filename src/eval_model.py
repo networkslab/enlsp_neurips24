@@ -1,6 +1,6 @@
 from typing import List
 import os
-import transformers    
+import transformers
 from transformers import AddedToken
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
 
@@ -31,10 +31,7 @@ def main():
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
-        torch.distributed.init_process_group("nccl")
-        os.environ["TOKENIZERS_PARALLELISM"] = "false"
-        rank = os.environ['LOCAL_RANK'] #rank when using DDP
-        deepspeed = get_abs_path(['src','utils'])+ args.deepspeed if args.deepspeed is not None else None
+        raise Exception("DDP not supported for evaluation")
     else:
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         rank = 0
@@ -42,16 +39,16 @@ def main():
 
     model_name = args.model
     dataset_name = args.dataset
-    
+
     #tokenizer
     sep_token = AddedToken("<SEP>", lstrip=False, rstrip=False)
     # TODO update model to account for expanded vocab
     tokenizer = AutoTokenizer.from_pretrained(
-        get_abs_path([model_name]) if args.load_model_from_disk else model_name, 
-        padding_side='left', use_fast=False, 
+        get_abs_path([model_name]) if args.load_model_from_disk else model_name,
+        padding_side='left', use_fast=False,
         sep_token=sep_token
-        )
-    
+    )
+
     #templates
     instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False) ['input_ids'] + [tokenizer.sep_token_id]
     response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
@@ -59,19 +56,19 @@ def main():
     #Dataset
     if args.load_dataset_from_disk:
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
-    
+
     else:
         full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
         #full_dataset = full_dataset.select(indices=range(200))
-        dataset = full_dataset.train_test_split(test_size=0.2) 
+        dataset = full_dataset.train_test_split(test_size=0.2)
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-    
+
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
-        
-        
-  
+
+
+
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
@@ -87,43 +84,41 @@ def main():
         adalas_config.skip_prompt = args.skip_prompt
         adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
-        
+
     if args.fp16:
         adalas = adalas.to(torch.float16)
-    
+
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
     stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
-    if args.ddp:
-        torch.distributed.barrier()
     time = datetime.now()
     current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
     #Metrics
     def compute_metrics(eval_pred):
-        return train_utils.compute_metrics(eval_pred, tokenizer)
-   
+        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True)
+
     #Training
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
-        packing=False, 
+        packing=False,
         output_dir=get_abs_path(['results', output_dir_name]),
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps= args.gradient_accumulation_steps,
-        gradient_checkpointing = args.gradient_checkpointing,
+        gradient_checkpointing = False, #gradient checkpointing does not work with eval (using KV cache)
         num_train_epochs=args.train_epochs,
         max_seq_length=args.max_seq_length,
-        report_to=['tensorboard'], 
-        logging_steps=args.logging_steps, 
+        report_to=['tensorboard'],
+        logging_steps=args.logging_steps,
         logging_dir=get_abs_path(['logs', output_dir_name]),
         logging_first_step=True,
         evaluation_strategy=args.eval_strategy,
-        eval_steps=args.eval_steps, 
+        eval_steps=args.eval_steps,
         save_strategy=args.save_strategy,
         include_inputs_for_metrics=True,
         eval_with_generate=True,
@@ -131,7 +126,7 @@ def main():
         deepspeed=deepspeed,
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,
-        )
+    )
     trainer = SFTTrainerGenerate(
         model=adalas,
         args=sft_config,
@@ -142,7 +137,7 @@ def main():
         compute_metrics=compute_metrics,
     )
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
-    trainer.train()
+    trainer.evaluate()
 
 def validate_args(args):
     if args.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
