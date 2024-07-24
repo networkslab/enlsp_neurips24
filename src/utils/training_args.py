@@ -44,7 +44,7 @@ class TrainingArgs:
     
 
 SAVED_ARGS = {
-    "joud_test": TrainingArgs(
+    "controller_warmup": TrainingArgs(
         prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10]),
         batch_size=4,
         model='facebook/opt-125m',
@@ -52,8 +52,9 @@ SAVED_ARGS = {
         eval_steps = 200,
         save_strategy = EvaluationStrategy.NO,
         ddp=False,
+        fp16=False,
         deepspeed='ds_config.json',
-        max_new_tokens=10,
+        max_seq_length=256,
         gradient_checkpointing=False
     ),
     "full_prop_opt125_args": TrainingArgs(

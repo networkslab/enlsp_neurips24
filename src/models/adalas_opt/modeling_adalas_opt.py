@@ -4,12 +4,16 @@ from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.models.opt.modeling_opt import OPTDecoder, OPTForCausalLM, OPTModel, \
     OPTLearnedPositionalEmbedding
 from transformers.utils import logging
+import numpy as np
 
-from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
+from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode, DynamicPropagationConfig
 import torch
 from torch import nn
 
 from src.models.adalas_opt.modelling_adalas_opt_modules import AdalasOPTDecoderLayer
+from src.models.controllers.controller_types import ControllerType
+from src.models.controllers.mlp_gumbel_softmax_controller import MLPGumbelSoftmaxController
+from src.utils.utils import freeze_network
 
 logger = logging.get_logger(__name__)
 
@@ -50,11 +54,18 @@ class AdalasOPTDecoder(OPTDecoder):
         self.layers = nn.ModuleList([AdalasOPTDecoderLayer(config) for _ in range(config.num_hidden_layers)])
 
         self.gradient_checkpointing = False
+        self.hidden_size = config.hidden_size
         self.prop_config = self.config.propagation_config
+        if self.prop_config.propagation_mode == PropagationMode.DYNAMIC:
+            self.init_controllers()
+        self.with_metrics = config.with_metrics
+        if self.with_metrics:
+            self._init_metrics()
         # Initialize weights and apply final processing
         self.post_init()
 
-
+    def _init_metrics(self):
+        self.metrics = {'percentage_skip': [[] for _ in range(len(self.controller_layers))]}
 
     def forward(
         self,
@@ -135,79 +146,144 @@ class AdalasOPTDecoder(OPTDecoder):
                         f" {head_mask.size()[0]}."
                     )
         for idx, decoder_layer in enumerate(self.layers):
-            # add LayerDrop (see https://arxiv.org/abs/1909.11556 for description)
-            should_skip_layer = False
-            if self.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
-                should_skip_layer = idx in self.prop_config.skip_layers
-            elif self.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
-                should_skip_layer = bool(torch.bernoulli(torch.tensor(self.prop_config.skip_probs[idx])).item())
-            if should_skip_layer and (self.config.skip_prompt or past_key_values is not None): # if past key values is passed, it means we are dealing with generation of new tok
+            if self.prop_config.propagation_mode == PropagationMode.DYNAMIC and idx in self.controller_layers:
+                rel_controller_idx = self.controller_layers.index(idx)
+                controller = self.controllers[rel_controller_idx]
+                controller_out = controller(hidden_states) # [:, :, 0] no  skip, [:, :, 1] skip
+                gumbel_skip = controller_out[:, :, 1]
+                gumbel_keep = controller_out[:, :, 0]
+                if output_hidden_states:
+                    all_hidden_states += (hidden_states,)
+
+                if self.training:
+                    dropout_probability = torch.rand([])
+                    if dropout_probability < self.layerdrop:
+                        continue
+
+                past_key_value = past_key_values[idx] if past_key_values is not None else None
+
+                if self.gradient_checkpointing and self.training:
+
+                    def create_custom_forward(module):
+                        def custom_forward(*inputs):
+                            # None for past_key_value
+                            return module(*inputs, output_attentions, None)
+
+                        return custom_forward
+
+                    layer_outputs = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(decoder_layer),
+                        hidden_states,
+                        causal_attention_mask,
+                        head_mask[idx] if head_mask is not None else None,
+                        None,
+                    )
+                else:
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=causal_attention_mask,
+                        layer_head_mask=(head_mask[idx] if head_mask is not None else None),
+                        past_key_value=past_key_value,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    )
+
+                label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1) # 1 where labels are
+
+                update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things diff 1 where we update, 0 where we skip. Should be complement of next
+                skip_mask = label_mask * gumbel_skip
+                hidden_states = layer_outputs[0] * update_mask[:, :, None] + hidden_states * skip_mask[:, :, None]
+                if self.with_metrics:
+                    # compute number of skips on label
+                    with torch.no_grad():
+                        generation_lengths = torch.sum(label_mask, dim = -1)
+                        num_skips_on_generation = torch.sum(skip_mask, dim = -1)
+                        percentage_skips = num_skips_on_generation / generation_lengths
+                        self.metrics['percentage_skip'][rel_controller_idx].append(percentage_skips)
                 if use_cache:
-                    past_key_value = past_key_values[idx] if past_key_values is not None else None # take past values for all previous tokens at this layer
-                    layer_outputs = decoder_layer.forward(hidden_states,
-                                                                   attention_mask=causal_attention_mask,
-                                                                   layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                                                                   past_key_value=past_key_value,
-                                                                   output_attentions=output_attentions,
-                                                                   use_cache=use_cache,
-                                                                   propagate_kv_cache_only=True
-                                                                   )
-                    next_decoder_cache += (layer_outputs[0],) # only populate the cache.
-                continue
+                    next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
-
-            if self.training:
-                dropout_probability = torch.rand([])
-                if dropout_probability < self.layerdrop:
+                if output_attentions:
+                    if should_skip_layer:
+                        label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, None, :, None] # 1 where label is
+                        previous_self_attn = all_self_attns[-1]
+                        current_self_attn = layer_outputs[1] * torch.logical_not(label_mask) + previous_self_attn * label_mask
+                        all_self_attns += (current_self_attn,)
+                    else:
+                        all_self_attns += (layer_outputs[1],)
+            else:
+                should_skip_layer = False
+                if self.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
+                    should_skip_layer = idx in self.prop_config.skip_layers
+                elif self.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
+                    should_skip_layer = bool(torch.bernoulli(torch.tensor(self.prop_config.skip_probs[idx])).item())
+                if should_skip_layer and (self.config.skip_prompt or past_key_values is not None): # if past key values is passed, it means we are dealing with generation of new tok
+                    if use_cache:
+                        past_key_value = past_key_values[idx] if past_key_values is not None else None # take past values for all previous tokens at this layer
+                        layer_outputs = decoder_layer.forward(hidden_states,
+                                                                       attention_mask=causal_attention_mask,
+                                                                       layer_head_mask=(head_mask[idx] if head_mask is not None else None),
+                                                                       past_key_value=past_key_value,
+                                                                       output_attentions=output_attentions,
+                                                                       use_cache=use_cache,
+                                                                       propagate_kv_cache_only=True
+                                                                       )
+                        next_decoder_cache += (layer_outputs[0],) # only populate the cache.
                     continue
 
-            past_key_value = past_key_values[idx] if past_key_values is not None else None
+                if output_hidden_states:
+                    all_hidden_states += (hidden_states,)
 
-            if self.gradient_checkpointing and self.training:
+                if self.training:
+                    dropout_probability = torch.rand([])
+                    if dropout_probability < self.layerdrop:
+                        continue
 
-                def create_custom_forward(module):
-                    def custom_forward(*inputs):
-                        # None for past_key_value
-                        return module(*inputs, output_attentions, None)
+                past_key_value = past_key_values[idx] if past_key_values is not None else None
 
-                    return custom_forward
+                if self.gradient_checkpointing and self.training:
 
-                layer_outputs = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(decoder_layer),
-                    hidden_states,
-                    causal_attention_mask,
-                    head_mask[idx] if head_mask is not None else None,
-                    None,
-                )
-            else:
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    attention_mask=causal_attention_mask,
-                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                    past_key_value=past_key_value,
-                    output_attentions=output_attentions,
-                    use_cache=use_cache,
-                )
-            
-            if should_skip_layer:
-                label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, :, None] # 1 where labels are
-                hidden_states = layer_outputs[0] * torch.logical_not(label_mask) + hidden_states * label_mask # for the label part, keep the hidden states as before. For the prompt part, update
-            else:
-                hidden_states = layer_outputs[0] 
+                    def create_custom_forward(module):
+                        def custom_forward(*inputs):
+                            # None for past_key_value
+                            return module(*inputs, output_attentions, None)
 
-            if use_cache:
-                next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
+                        return custom_forward
 
-            if output_attentions:
-                if should_skip_layer:
-                    label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, None, :, None] # 1 where label is
-                    previous_self_attn = all_self_attns[-1]
-                    current_self_attn = layer_outputs[1] * torch.logical_not(label_mask) + previous_self_attn * label_mask
-                    all_self_attns += (current_self_attn,)
+                    layer_outputs = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(decoder_layer),
+                        hidden_states,
+                        causal_attention_mask,
+                        head_mask[idx] if head_mask is not None else None,
+                        None,
+                    )
                 else:
-                    all_self_attns += (layer_outputs[1],)
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=causal_attention_mask,
+                        layer_head_mask=(head_mask[idx] if head_mask is not None else None),
+                        past_key_value=past_key_value,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    )
+
+                if should_skip_layer:
+                    label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, :, None] # 1 where labels are
+                    hidden_states = layer_outputs[0] * torch.logical_not(label_mask) + hidden_states * label_mask # for the label part, keep the hidden states as before. For the prompt part, update
+                else:
+                    hidden_states = layer_outputs[0]
+
+                if use_cache:
+                    next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
+
+                if output_attentions:
+                    if should_skip_layer:
+                        label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, None, :, None] # 1 where label is
+                        previous_self_attn = all_self_attns[-1]
+                        current_self_attn = layer_outputs[1] * torch.logical_not(label_mask) + previous_self_attn * label_mask
+                        all_self_attns += (current_self_attn,)
+                    else:
+                        all_self_attns += (layer_outputs[1],)
 
         if self.final_layer_norm is not None:
             hidden_states = self.final_layer_norm(hidden_states)
@@ -222,6 +298,8 @@ class AdalasOPTDecoder(OPTDecoder):
         next_cache = next_decoder_cache if use_cache else None
         if not return_dict:
             return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
+
+
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
             past_key_values=next_cache,
@@ -229,12 +307,36 @@ class AdalasOPTDecoder(OPTDecoder):
             attentions=all_self_attns,
         )
 
+    def init_controllers(self):
+        if self.prop_config.controller_input_size is None:
+            controller_input_dim = self.hidden_size
+        else:
+            controller_input_dim = self.prop_config.controller_input_size
+        if self.prop_config.controller_type == ControllerType.MLP_GUMBEL:
+            self.controller_layers = self.prop_config.controller_layers
+            self.controllers = nn.ModuleList([
+                MLPGumbelSoftmaxController(controller_input_dim, tau=self.prop_config.gumbel_temperature)
+                for _ in range(len(self.controller_layers))])
+        else:
+            raise Exception('Unimplemented controller type')
+
+
+    def freeze_backbone(self):
+        freeze_network(self, ['controllers'])
+
+    def flush_metrics(self):
+        ''' should typically be called after every logging step in the callback'''
+        self._init_metrics()
+
 class AdalasOPTModel(OPTModel):
     def __init__(self, config: AdalasOPTConfig):
         super().__init__(config)
         self.decoder = AdalasOPTDecoder(config)
         # Initialize weights and apply final processing
         self.post_init()
+
+    def freeze(self):
+        self.decoder.freeze_backbone()
 
 
 class AdalasOPTForCausalLM(OPTForCausalLM):
@@ -249,6 +351,25 @@ class AdalasOPTForCausalLM(OPTForCausalLM):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    def init_controllers(self):
+        self.model.decoder.init_controllers()
+
+    def freeze_backbone_and_head(self):
+        trainable_parameters_before = filter(lambda p: p.requires_grad,
+                                      self.parameters())
+        num_trainable_params_before = sum(
+            [np.prod(p.size()) for p in trainable_parameters_before])
+
+        self.model.freeze()
+        freeze_network(self.lm_head, [])
+        trainable_parameters_after = filter(lambda p: p.requires_grad,
+                                             self.parameters())
+        num_trainable_params_after = sum(
+            [np.prod(p.size()) for p in trainable_parameters_after])
+        print('Successfully froze network: from {} to {} trainable params.'.format(
+            num_trainable_params_before, num_trainable_params_after))
+
 
 
 

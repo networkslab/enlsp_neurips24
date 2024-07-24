@@ -93,6 +93,7 @@ class AdalasOPTConfig(OPTConfig):
                  layer_norm_elementwise_affine=True,
                  propagation_config: PropagationConfig = PropagationConfig(),
                  skip_prompt=False,
+                 with_metrics=True,
                  **kwargs):
         super().__init__(vocab_size,
                          hidden_size,
@@ -121,6 +122,7 @@ class AdalasOPTConfig(OPTConfig):
             self.propagation_config = propagation_config
         self.skip_prompt = skip_prompt
         self.sep_token_id = sep_token_id
+        self.with_metrics = with_metrics
 
     def to_json_string(self, use_diff: bool = True) -> str:
         if use_diff is True:
