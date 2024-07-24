@@ -16,7 +16,7 @@ import copy
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
 from src.utils.utils import get_abs_path
-from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
+from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate, fix_the_seed
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
@@ -28,6 +28,8 @@ def main():
         raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
     args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
+    
+    fix_the_seed(42)
 
     transformers.logging.set_verbosity_info()
     if args.ddp:

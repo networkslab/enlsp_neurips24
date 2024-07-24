@@ -1,5 +1,6 @@
 import numpy as np
 from evaluate import load
+import torch.backends
 from src.utils.utils import get_abs_path
 import json
 from torch import nn
@@ -15,7 +16,14 @@ from collections.abc import Mapping
 from src.utils.training_args import DATASET_KEYS
 import copy
 import pandas as pd
+import random
 
+def fix_the_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
 
 def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 50):
     """Computes ROUGE score for evaluation predictions
