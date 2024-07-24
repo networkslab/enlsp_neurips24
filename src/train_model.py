@@ -20,6 +20,8 @@ from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCol
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
+SEED = 42
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_args", type=str, default='full_prop_args')
@@ -29,7 +31,7 @@ def main():
     args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
     
-    fix_the_seed(42)
+    fix_the_seed(SEED)
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
@@ -65,7 +67,7 @@ def main():
     else:
         full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
         #full_dataset = full_dataset.select(indices=range(200))
-        dataset = full_dataset.train_test_split(test_size=0.2) 
+        dataset = full_dataset.train_test_split(test_size=0.2, seed=SEED) 
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
     
