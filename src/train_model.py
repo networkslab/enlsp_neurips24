@@ -21,6 +21,7 @@ import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
 def main():
+    torch.distributed.init_process_group("nccl")
     parser = argparse.ArgumentParser()
     parser.add_argument("--training_args", type=str, default='full_prop_args')
     parser_args = parser.parse_args()
@@ -96,7 +97,10 @@ def main():
 
     stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
-    current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
+    torch.distributed.barrier()
+    time = datetime.now()
+    print(f' RANK {rank} time: {time}')
+    current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
     #Metrics
@@ -107,7 +111,7 @@ def main():
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
         packing=False, 
-        output_dir=get_abs_path(['logs', output_dir_name]),
+        output_dir=get_abs_path(['results', output_dir_name]),
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps= args.gradient_accumulation_steps,
@@ -118,7 +122,7 @@ def main():
         logging_steps=args.logging_steps, 
         logging_dir=get_abs_path(['logs', output_dir_name]),
         logging_first_step=True,
-        evaluation_strategy='steps',
+        evaluation_strategy=args.eval_strategy,
         eval_steps=args.eval_steps, 
         save_strategy=args.save_strategy,
         include_inputs_for_metrics=True,
