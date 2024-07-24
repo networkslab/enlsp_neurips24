@@ -27,7 +27,7 @@ class TrainingArgs:
     save_strategy: str = "no"
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
-    load_best_model_at_end: bool = True,
+    load_best_model_at_end: bool = False,
     save_total_limit: int = 1,
     multiprocess: bool = True
     instruction_template: str = "### User:"
@@ -126,6 +126,7 @@ SAVED_ARGS = {
         prop_config=StaticSkipPropagationConfig(skip_layers=[2, 6, 8]),
         batch_size=10,
         train_epochs=3,
+        fp16=False,
         ddp=False,
     ),
     "stochastic_dropout_args": TrainingArgs(

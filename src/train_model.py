@@ -57,11 +57,11 @@ def main():
 
     #Dataset
     if args.load_dataset_from_disk:
-        tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
+        tokenized_dataset = load_from_disk(get_abs_path(['data', 'datasets', args.dataset]))
     
     else:
         full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-        #full_dataset = full_dataset.select(indices=range(200))
+        # full_dataset = full_dataset.select(indices=range(200))
         dataset = full_dataset.train_test_split(test_size=0.2) 
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
@@ -122,7 +122,6 @@ def main():
         eval_steps=args.eval_steps,
         save_steps=args.save_steps,
         save_total_limit=args.save_total_limit,
-        load_best_model_at_end=args.load_best_model_at_end,
         save_strategy=args.save_strategy,
         include_inputs_for_metrics=True,
         eval_with_generate=True,

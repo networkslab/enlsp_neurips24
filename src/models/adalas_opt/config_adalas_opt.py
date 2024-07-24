@@ -16,6 +16,7 @@ class PropagationMode(Enum):
 class PropagationConfig:
     def __init__(self, propagation_mode = PropagationMode.FULL):
         self.propagation_mode = propagation_mode
+        self.controller_type = ControllerType.STATIC
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value}
@@ -32,6 +33,7 @@ class StaticSkipPropagationConfig(PropagationConfig):
     def __init__(self, skip_layers: List[int]):
         super().__init__(PropagationMode.STATIC_SKIP)
         self.skip_layers = skip_layers
+        self.controller_type = ControllerType.STATIC
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value, 'skip_layers': self.skip_layers}
