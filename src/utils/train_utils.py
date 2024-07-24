@@ -70,7 +70,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 50)
                                 use_aggregator=False)
         label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
         prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
-        prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token) - label_lengths[i] for i in range(len(input_ids))]
+        prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
         #save to pandas dataframe
         df = pd.DataFrame(
             {

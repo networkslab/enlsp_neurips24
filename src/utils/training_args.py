@@ -128,6 +128,20 @@ SAVED_ARGS = {
         max_new_tokens=100,
         fp16 = False
     ),
+    "eval_full_prop_350_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        model='results/opt-350m/databricks-dolly-15k_23-07_21-08-20/checkpoint-564',
+        load_model_from_disk = True,
+        train_epochs=3,
+        max_seq_length=768,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=False,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
+        fp16 = False
+    ),
 }
 
 DATASET_KEYS ={
