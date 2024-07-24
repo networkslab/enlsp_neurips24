@@ -449,8 +449,9 @@ class MetricsCallback(TensorBoardCallback):
     def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         percentage_skip_per_controller_per_seq = self.model.metrics['percentage_skip']
         for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
-            avg_perc_skip = torch.mean(torch.cat(skip_per_seq)).item()
-            self.tb_writer.add_scalar(f'perc_skip/{layer_idx}', avg_perc_skip, state.global_step)
+            if len(skip_per_seq) > 0:
+                avg_perc_skip = torch.mean(torch.cat(skip_per_seq)).item()
+                self.tb_writer.add_scalar(f'perc_skip/{layer_idx}', avg_perc_skip, state.global_step)
         self.model.flush_metrics()
 
 
