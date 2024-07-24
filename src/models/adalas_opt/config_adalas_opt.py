@@ -3,16 +3,20 @@ from typing import List
 from transformers.models.opt import OPTConfig
 from enum import Enum
 
+from src.models.controllers.controller_types import ControllerType
+
 
 class PropagationMode(Enum):
     FULL = 'full'
     STATIC_SKIP = 'static_skip'
     STOCHASTIC_DROPOUT = 'stochastic_dropout'
+    DYNAMIC = 'dynamic'
 
 
 class PropagationConfig:
     def __init__(self, propagation_mode = PropagationMode.FULL):
         self.propagation_mode = propagation_mode
+        self.controller_type = ControllerType.STATIC
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value}
@@ -29,6 +33,7 @@ class StaticSkipPropagationConfig(PropagationConfig):
     def __init__(self, skip_layers: List[int]):
         super().__init__(PropagationMode.STATIC_SKIP)
         self.skip_layers = skip_layers
+        self.controller_type = ControllerType.STATIC
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value, 'skip_layers': self.skip_layers}
@@ -41,10 +46,25 @@ class StochasticDropoutPropagationConfig(PropagationConfig):
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value, 'skip_probs': self.skip_probs}
 
+class DynamicPropagationConfig(PropagationConfig):
+    '''Uses trainable gates to determine which layers to skip or execute'''
+    def __init__(self, controller_layers, controller_input_size = None, gumbel_temperature = 1.2, controller_type = ControllerType.MLP_GUMBEL):
+        super().__init__(PropagationMode.DYNAMIC)
+        self.gumbel_temperature = gumbel_temperature # tau parameter
+        self.controller_input_size = controller_input_size
+        self.controller_type = controller_type
+        self.controller_layers = controller_layers
+
+    def to_dict(self):
+        return {'propagation_mode': self.propagation_mode.value, 'gumbel_temp': self.gumbel_temperature,
+                'controller_input_size': self.controller_input_size, 'controller_type': self.controller_type.value,
+                'controller_layers': self.controller_layers}
+
 MAP_PROPAGATION_MODES = {
     'full': PropagationConfig,
     'static_skip': StaticSkipPropagationConfig,
-    'stochastic_dropout': StochasticDropoutPropagationConfig
+    'stochastic_dropout': StochasticDropoutPropagationConfig,
+    'dynamic': DynamicPropagationConfig
 }
 
 class AdalasOPTConfig(OPTConfig):
@@ -75,6 +95,7 @@ class AdalasOPTConfig(OPTConfig):
                  layer_norm_elementwise_affine=True,
                  propagation_config: PropagationConfig = PropagationConfig(),
                  skip_prompt=False,
+                 with_metrics=True,
                  **kwargs):
         super().__init__(vocab_size,
                          hidden_size,
@@ -103,6 +124,7 @@ class AdalasOPTConfig(OPTConfig):
             self.propagation_config = propagation_config
         self.skip_prompt = skip_prompt
         self.sep_token_id = sep_token_id
+        self.with_metrics = with_metrics
 
     def to_json_string(self, use_diff: bool = True) -> str:
         if use_diff is True:

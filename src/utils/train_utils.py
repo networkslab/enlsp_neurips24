@@ -1,5 +1,9 @@
 import numpy as np
 from evaluate import load
+from torch.utils.tensorboard import SummaryWriter
+from transformers.integrations import TensorBoardCallback
+
+from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTDecoder
 from src.utils.utils import get_abs_path
 import json
 from torch import nn
@@ -7,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 import torch
 from trl.trainer import SFTTrainer, SFTConfig
-from transformers import DataCollatorForSeq2Seq
+from transformers import DataCollatorForSeq2Seq, TrainingArguments, TrainerState, TrainerControl
 from dataclasses import dataclass
 import inspect
 import warnings
@@ -440,3 +444,23 @@ class DataCollatorForSeq2SeqGenerate(DataCollatorForSeq2Seq):
         return features
     
     
+class MetricsCallback(TensorBoardCallback):
+    def __init__(self, summary_writer: SummaryWriter, model: AdalasOPTDecoder):
+        super().__init__(summary_writer)
+        self.model = model
+
+    def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        percentage_skip_per_controller_per_seq = self.model.metrics['percentage_skip']
+        for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
+            avg_perc_skip = torch.mean(torch.cat(skip_per_seq)).item()
+            self.tb_writer.add_scalar(f'perc_skip/{layer_idx}', avg_perc_skip, state.global_step)
+        self.model.flush_metrics()
+
+
+def get_tensorboard_training_layout(decoder: AdalasOPTDecoder):
+    layout = {
+        "Additional training metrics": {
+            "perc_skip": ["Multiline", [f'perc_skip/{cont_layer}' for cont_layer in range(len(decoder.layers))]],
+        },
+    }
+    return layout

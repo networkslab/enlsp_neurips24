@@ -18,7 +18,7 @@ def get_abs_path(paths_strings):
 def free(torch_tensor):
     return torch_tensor.cpu().detach().numpy()
 
-def freeze_network(network, excluded_submodules: list[str]):
+def freeze_network(network, excluded_submodules: list[str], verbose = False):
     model_parameters = filter(lambda p: p.requires_grad, network.parameters())
     total_num_parameters = sum([np.prod(p.size()) for p in model_parameters])
     # set everything to not trainable.
@@ -35,12 +35,13 @@ def freeze_network(network, excluded_submodules: list[str]):
             for param in submodule.parameters():
                 param.requires_grad = True
 
-    trainable_parameters = filter(lambda p: p.requires_grad,
-                                  network.parameters())
-    num_trainable_params = sum(
-        [np.prod(p.size()) for p in trainable_parameters])
-    print('Successfully froze network: from {} to {} trainable params.'.format(
-        total_num_parameters, num_trainable_params))
+    if verbose:
+        trainable_parameters = filter(lambda p: p.requires_grad,
+                                      network.parameters())
+        num_trainable_params = sum(
+            [np.prod(p.size()) for p in trainable_parameters])
+        print('Successfully froze network: from {} to {} trainable params.'.format(
+            total_num_parameters, num_trainable_params))
 
 def list_of_ints(arg):
     return list(map(int, arg.split(',')))
