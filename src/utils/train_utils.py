@@ -7,6 +7,7 @@ from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTDecoder
 from src.utils.utils import get_abs_path
 import json
 from torch import nn
+import torch.distributed as dist
 from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from trl.trainer import SFTTrainer, SFTConfig
@@ -450,8 +451,13 @@ class MetricsCallback(TensorBoardCallback):
         percentage_skip_per_controller_per_seq = self.model.metrics['percentage_skip']
         for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
             if len(skip_per_seq) > 0:
-                avg_perc_skip = torch.mean(torch.cat(skip_per_seq)).item()
-                self.tb_writer.add_scalar(f'perc_skip/{layer_idx}', avg_perc_skip, state.global_step)
+                skip_per_seq_tensor = torch.cat(skip_per_seq)
+                output_tensors = [skip_per_seq_tensor.clone() for _ in range(dist.get_world_size())]
+                dist.all_gather(output_tensors, skip_per_seq_tensor) # gather all tensors from all processes
+                skip_per_seq_tensor_gathered = torch.cat(output_tensors, dim=0)
+                avg_perc_skip = torch.mean(skip_per_seq_tensor_gathered).item()
+                if state.is_world_process_zero:
+                    self.tb_writer.add_scalar(f'perc_skip/{layer_idx}', avg_perc_skip, state.global_step) # only log on one process
         self.model.flush_metrics()
 
 
