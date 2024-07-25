@@ -38,6 +38,7 @@ def main():
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
+        torch.distributed.init_process_group("nccl")
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
         rank = os.environ['LOCAL_RANK'] #rank when using DDP
         deepspeed = get_abs_path(['src','utils'])+ args.deepspeed if args.deepspeed is not None else None
@@ -104,7 +105,10 @@ def main():
 
     stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
-    current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
+    if args.ddp:
+        torch.distributed.barrier()
+    time = datetime.now()
+    current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
     # Metrics
@@ -115,7 +119,7 @@ def main():
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
         packing=False,
-        output_dir=get_abs_path(['logs', output_dir_name]),
+        output_dir=get_abs_path(['results', output_dir_name]),
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps= args.gradient_accumulation_steps,

@@ -29,7 +29,7 @@ class TrainingArgs:
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
     load_best_model_at_end: bool = False,
-    save_total_limit: int = 1,
+    save_total_limit: int = 3,
     multiprocess: bool = True
     instruction_template: str = "### User:"
     response_template: str = "\n### Assistant:"
@@ -85,6 +85,21 @@ SAVED_ARGS = {
         deepspeed='ds_config.json',
         gradient_accumulation_steps=2,
         max_new_tokens=10,
+        fp16 = False
+    ),
+    "warmup_gumbel_350_args": TrainingArgs(
+        learning_rate=1e-4,
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]),
+        batch_size=4,
+        load_model_from_disk=True,
+        model='results/opt-350m/databricks-dolly-15k_23-07_21-08-20/checkpoint-564',
+        train_epochs=5,
+        max_seq_length=768,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=2,
         fp16 = False
     ),
     "full_prop_125_args": TrainingArgs(
