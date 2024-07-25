@@ -1,6 +1,7 @@
 from typing import Optional, List, Union, Tuple
 
-from transformers.modeling_outputs import BaseModelOutputWithPast
+from torch.nn import CrossEntropyLoss
+from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.models.opt.modeling_opt import OPTDecoder, OPTForCausalLM, OPTModel, \
     OPTLearnedPositionalEmbedding
 from transformers.utils import logging
@@ -64,6 +65,7 @@ class AdalasOPTDecoder(OPTDecoder):
             self._init_metrics()
         # Initialize weights and apply final processing
         self.post_init()
+        self.with_cost_aware_loss = config.with_cost_aware_loss
 
     def _init_metrics(self):
         self.metrics = {'percentage_skip': [[] for _ in range(len(self.layers))]}
@@ -146,6 +148,7 @@ class AdalasOPTDecoder(OPTDecoder):
                         f"The `{mask_name}` should be specified for {len(self.layers)} layers, but it is for"
                         f" {head_mask.size()[0]}."
                     )
+        layer_costs = []
         for idx, decoder_layer in enumerate(self.layers):
             if self.prop_config.propagation_mode in [PropagationMode.DYNAMIC, PropagationMode.STATIC_SKIP, PropagationMode.FULL]:
                 controller = self.controllers[idx]
@@ -193,11 +196,16 @@ class AdalasOPTDecoder(OPTDecoder):
                 update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things diff 1 where we update, 0 where we skip. Should be complement of next
                 skip_mask = label_mask * gumbel_skip
                 hidden_states = layer_outputs[0] * update_mask[:, :, None] + hidden_states * skip_mask[:, :, None]
+                generation_lengths = torch.sum(label_mask, dim = -1)
+                num_skips_on_generation = torch.sum(skip_mask, dim = -1)
+                if self.with_cost_aware_loss: # need to compute how many skips on generation
+                    updates_on_generation = generation_lengths - num_skips_on_generation
+                    layer_cost_per_seq = updates_on_generation / generation_lengths
+                    layer_cost_for_batch = torch.mean(layer_cost_per_seq)
+                    layer_costs.append(layer_cost_for_batch)
                 if self.with_metrics:
                     # compute number of skips on label
                     with torch.no_grad():
-                        generation_lengths = torch.sum(label_mask, dim = -1)
-                        num_skips_on_generation = torch.sum(skip_mask, dim = -1)
                         percentage_skips = num_skips_on_generation / generation_lengths
                         self.metrics['percentage_skip'][idx].append(percentage_skips)
                 if use_cache:
@@ -226,6 +234,13 @@ class AdalasOPTDecoder(OPTDecoder):
         if not return_dict:
             return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
 
+        if self.with_cost_aware_loss: # return a tuple where the second entry contains the skips
+            return (BaseModelOutputWithPast(
+                last_hidden_state=hidden_states,
+                past_key_values=next_cache,
+                hidden_states=all_hidden_states,
+                attentions=all_self_attns,
+            ), layer_costs)
 
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
@@ -279,9 +294,10 @@ class AdalasOPTModel(OPTModel):
 class AdalasOPTForCausalLM(OPTForCausalLM):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config):
+    def __init__(self, config: AdalasOPTConfig):
         super(OPTForCausalLM, self).__init__(config)
         self.model = AdalasOPTModel(config)
+        self.config = config
 
         # the lm_head weight is automatically tied to the embed tokens weight
         self.lm_head = torch.nn.Linear(config.word_embed_proj_dim, config.vocab_size, bias=False)
@@ -289,6 +305,82 @@ class AdalasOPTForCausalLM(OPTForCausalLM):
         # Initialize weights and apply final processing
         self.post_init()
 
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        head_mask: Optional[torch.Tensor] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple, CausalLMOutputWithPast]:
+        '''Pretty much the same method as the original super but overriding for loss computation'''
+        with_cost_aware_loss = self.config.with_cost_aware_loss
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+
+        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
+        if not with_cost_aware_loss:
+            outputs = self.model.decoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                head_mask=head_mask,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+        else:
+            outputs, layer_perc_execution = self.model.decoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                head_mask=head_mask,
+                past_key_values=past_key_values,
+                inputs_embeds=inputs_embeds,
+                use_cache=use_cache,
+                output_attentions=output_attentions,
+                output_hidden_states=output_hidden_states,
+                return_dict=return_dict,
+            )
+
+
+        logits = self.lm_head(outputs[0]).contiguous()
+
+        loss = None
+        if labels is not None:
+            # move labels to correct device to enable model parallelism
+            labels = labels.to(logits.device)
+            # Shift so that tokens < n predict n
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
+            loss_fct = CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
+            if self.model.decoder.with_cost_aware_loss:
+                layer_perc_execution = torch.stack(layer_perc_execution)
+                layer_cost_multipliers = torch.ones_like(layer_perc_execution) # modify based on actual weight of each layer.
+                loss += torch.mean(layer_cost_multipliers * layer_perc_execution) * self.config.alpha
+
+        if not return_dict:
+            output = (logits,) + outputs[1:]
+            return (loss,) + output if loss is not None else output
+
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=logits,
+            past_key_values=outputs.past_key_values,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
     def freeze_backbone_and_head(self):
         trainable_parameters_before = filter(lambda p: p.requires_grad,
                                       self.parameters())
