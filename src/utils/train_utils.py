@@ -451,9 +451,8 @@ class MetricsCallback(TensorBoardCallback):
         percentage_skip_per_controller_per_seq = self.model.metrics['percentage_skip']
         for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
             if len(skip_per_seq) > 0:
-                skip_per_seq_tensor = torch.cat(skip_per_seq)
-                output_tensors = [skip_per_seq_tensor.clone() for _ in range(dist.get_world_size())]
-                dist.all_gather(output_tensors, skip_per_seq_tensor) # gather all tensors from all processes
+                output_tensors = [skip_per_seq.clone() for _ in range(dist.get_world_size())]
+                dist.all_gather(output_tensors, skip_per_seq) # gather all tensors from all processes
                 skip_per_seq_tensor_gathered = torch.cat(output_tensors, dim=0)
                 avg_perc_skip = torch.mean(skip_per_seq_tensor_gathered).item()
                 if state.is_world_process_zero:

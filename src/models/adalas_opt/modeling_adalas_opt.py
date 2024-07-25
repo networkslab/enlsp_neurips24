@@ -66,7 +66,7 @@ class AdalasOPTDecoder(OPTDecoder):
         self.post_init()
 
     def _init_metrics(self):
-        self.metrics = {'percentage_skip': [[] for _ in range(len(self.layers))]}
+        self.metrics = {'percentage_skip': [None for _ in range(len(self.layers))]}
 
     def forward(
         self,
@@ -199,7 +199,10 @@ class AdalasOPTDecoder(OPTDecoder):
                         generation_lengths = torch.sum(label_mask, dim = -1)
                         num_skips_on_generation = torch.sum(skip_mask, dim = -1)
                         percentage_skips = num_skips_on_generation / generation_lengths
-                        self.metrics['percentage_skip'][idx].append(percentage_skips)
+                        if self.metrics['percentage_skip'][idx] is None:
+                            self.metrics['percentage_skip'][idx] = percentage_skips
+                        else:
+                            self.metrics['percentage_skip'][idx] = torch.cat((self.metrics['percentage_skip'][idx], percentage_skips))
                 if use_cache:
                     next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 

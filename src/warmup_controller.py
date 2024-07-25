@@ -103,7 +103,10 @@ def main():
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
-    stripped_model_name = model_name.split('/')[-1]
+    if args.load_model_from_disk:
+        stripped_model_name = model_name.split('/')[-2] + '/' + model_name.split('/')[-1]
+    else:
+        stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
     if args.ddp:
         torch.distributed.barrier()
@@ -139,7 +142,8 @@ def main():
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,
     )
-    summary_writer = SummaryWriter(sft_config.logging_dir)
+    
+    summary_writer = SummaryWriter(sft_config.logging_dir + '/custom_scalars')
     summary_writer.add_custom_scalars(train_utils.get_tensorboard_training_layout(adalas.model.decoder))
     metrics_callback = train_utils.MetricsCallback(summary_writer, adalas.model.decoder)
     trainer = SFTTrainerGenerate(
@@ -150,7 +154,7 @@ def main():
         tokenizer=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
-        callbacks=[metrics_callback]
+        callbacks=[metrics_callback],
     )
 
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
