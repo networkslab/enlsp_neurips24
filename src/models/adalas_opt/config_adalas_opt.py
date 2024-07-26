@@ -96,6 +96,8 @@ class AdalasOPTConfig(OPTConfig):
                  propagation_config: PropagationConfig = PropagationConfig(),
                  skip_prompt=False,
                  with_metrics=True,
+                 with_cost_aware_loss = False,
+                 alpha = 0.0, # controls how much to emphasize computational cost.
                  **kwargs):
         super().__init__(vocab_size,
                          hidden_size,
@@ -125,6 +127,8 @@ class AdalasOPTConfig(OPTConfig):
         self.skip_prompt = skip_prompt
         self.sep_token_id = sep_token_id
         self.with_metrics = with_metrics
+        self.with_cost_aware_loss = with_cost_aware_loss
+        self.alpha = alpha
 
     def to_json_string(self, use_diff: bool = True) -> str:
         if use_diff is True:
