@@ -28,7 +28,7 @@ class SFTTrainerGenerate(SFTTrainer):
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
 
         """
-        Overrides the SFTrainer's prediction step to use the generate method of the model. Implemetation copied from Seq2SeqTrainer.
+        Overrides the SFTrainer's prediction step to use the generate method of the model. Implementation copied from Seq2SeqTrainer.
 
         Perform an evaluation step on `model` using `inputs`.
 
