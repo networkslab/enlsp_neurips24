@@ -215,7 +215,7 @@ class AdalasOPTDecoder(OPTDecoder):
                         if self.metrics[train_eval_phase]['percentage_skip'][idx] is None:
                             self.metrics[train_eval_phase]['percentage_skip'][idx] = percentage_skips
                         else:
-                            self.metrics[train_eval_phase]['percentage_skip'][idx] = torch.cat((self.metrics['percentage_skip'][idx], percentage_skips))
+                            self.metrics[train_eval_phase]['percentage_skip'][idx] = torch.cat((self.metrics[train_eval_phase]['percentage_skip'][idx], percentage_skips))
                 if use_cache:
                     next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
