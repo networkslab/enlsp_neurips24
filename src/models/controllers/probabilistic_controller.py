@@ -4,8 +4,7 @@ from src.models.controllers.controller_types import ControllerType
 
 
 class ProbabilisticController(torch.nn.Module):
-    '''Consistently skips or does not skip based on the skip boolean.
-    This is used for the STATIC SKIP propagation mode as well as the full prop mode (where all controllers never skip)'''
+    '''Skips with a given probability, regardless of the input'''
     def __init__(self, skip_prob: float) -> None:
         super().__init__()
         self.type = ControllerType.PROBABILISTIC
