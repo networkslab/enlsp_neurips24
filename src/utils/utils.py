@@ -1,3 +1,5 @@
+import argparse
+import dataclasses
 import os
 from typing import Iterable
 
@@ -5,12 +7,14 @@ import numpy as np
 import random
 import torch
 
+from src.models.adalas_opt.config_adalas_opt import PropagationMode
+from src.utils.training_args import SAVED_ARGS, TrainingArgs
+
 def fix_the_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.use_deterministic_algorithms(True)
 
 def get_path_to_project_root():
     cwd = os.getcwd()
@@ -56,9 +60,26 @@ def list_of_ints(arg):
 def list_of_floats(arg):
     return list(map(float, arg.split(',')))
 
-def fix_the_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.backends.cudnn.deterministic = True
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--training_args", type=str, default='full_prop_args')
+    for field in dataclasses.fields(TrainingArgs): # introspection of fields to allow overriding any arg
+        parser.add_argument(f"--{field.name}", type=field.type)
+
+    parser_args = parser.parse_args()
+    overwritten_args = {}
+    for arg_name, value in parser_args.__dict__.items():
+        if value is not None and arg_name != 'training_args':
+            overwritten_args[arg_name] = value
+    if parser_args.training_args not in SAVED_ARGS:
+        raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
+    args = SAVED_ARGS[parser_args.training_args]
+    args.update_fields(overwritten_args)
+    validate_args(args)
+    return args
+
+def validate_args(args):
+    if args.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
+        assert len(args.prop_config.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
+    if args.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
+        assert len(args.prop_config.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'

@@ -18,22 +18,17 @@ from transformers.trainer_utils import EvaluationStrategy
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path, fix_the_seed
+from src.utils.utils import get_abs_path, fix_the_seed, get_args
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
-from src.utils.training_args import SAVED_ARGS
+from src.utils.training_args import SAVED_ARGS, TrainingArgs
+import dataclasses
 
 SEED = 42
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--training_args", type=str, default='full_prop_args')
-    parser_args = parser.parse_args()
-    if parser_args.training_args not in SAVED_ARGS:
-        raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
-    args = SAVED_ARGS[parser_args.training_args]
-    validate_args(args)
+    args = get_args()
     
     fix_the_seed(SEED)
 
@@ -70,7 +65,7 @@ def main():
 
     else:
         full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-        # full_dataset = full_dataset.select(indices=range(200))
+        full_dataset = full_dataset.select(indices=range(3000))
         dataset = full_dataset.train_test_split(test_size=0.2,seed=SEED)
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
@@ -86,7 +81,7 @@ def main():
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
         adalas_config.propagation_config = args.prop_config
         adalas_config.with_cost_aware_loss = args.with_cost_aware_loss
-        adalas_config.alpha = args.alpha
+        adalas_config.alpha = args.alpha if parser_args.alpha < 0 else parser_args.alpha
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
         print(f"Loading model from {model_name}. Model config parameters will be ignored")
     else:
@@ -154,12 +149,6 @@ def main():
 
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     trainer.train()
-
-def validate_args(args):
-    if args.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
-        assert len(args.prop_config.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
-    if args.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
-        assert len(args.prop_config.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'
 
 if __name__ == "__main__":
     main()
