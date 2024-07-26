@@ -54,8 +54,8 @@ class TrainingArgs(DictOverwritable):
     
 
 SAVED_ARGS = {
-    "controller_warmup_fixed_input": TrainingArgs(
-        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10], with_fixed_input=True),
+    "warmup_probabilistic": TrainingArgs(
+        prop_config=StochasticDropoutPropagationConfig(skip_probs=[0] + [0.5] * 10 + [0]),
         batch_size=4,
         model='logs/opt-125m/databricks-dolly-15k_23-07_14-13-33/checkpoint-8000',
         train_epochs=3,
@@ -65,8 +65,8 @@ SAVED_ARGS = {
         fp16=False,
         load_model_from_disk=True,
         deepspeed='ds_config.json',
-        alpha = 3,
-        with_cost_aware_loss=True,
+        alpha = 10,
+        with_cost_aware_loss=False,
         max_seq_length=256,
         gradient_checkpointing=True
     ),

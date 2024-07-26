@@ -153,9 +153,9 @@ def main():
         compute_metrics=compute_metrics,
         callbacks=[metrics_callback],
     )
-
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
-    trainer.train()
+    # trainer.evaluate()
+    trainer.train() # make sure there are trainable components, otherwise the backprop will fail.
 
 if __name__ == "__main__":
     main()

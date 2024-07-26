@@ -40,7 +40,8 @@ class StaticSkipPropagationConfig(PropagationConfig):
 
 class StochasticDropoutPropagationConfig(PropagationConfig):
     def __init__(self, skip_probs: List[float]):
-        super().__init__(PropagationMode.STOCHASTIC_DROPOUT)
+        super().__init__(propagation_mode=PropagationMode.STOCHASTIC_DROPOUT)
+        self.controller_type = ControllerType.PROBABILISTIC
         self.skip_probs = skip_probs
 
     def to_dict(self):

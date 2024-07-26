@@ -8,6 +8,7 @@ class StaticController(torch.nn.Module):
     This is used for the STATIC SKIP propagation mode as well as the full prop mode (where all controllers never skip)'''
     def __init__(self, skip: bool) -> None:
         super().__init__()
+        self.type = ControllerType.STATIC
         self.skip = skip
 
     def forward(self, X):

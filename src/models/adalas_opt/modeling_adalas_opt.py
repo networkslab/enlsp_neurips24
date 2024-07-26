@@ -14,6 +14,7 @@ from torch import nn
 from src.models.adalas_opt.modelling_adalas_opt_modules import AdalasOPTDecoderLayer
 from src.models.controllers.controller_types import ControllerType
 from src.models.controllers.mlp_gumbel_softmax_controller import MLPGumbelSoftmaxController
+from src.models.controllers.probabilistic_controller import ProbabilisticController
 from src.models.controllers.static_controller import StaticController
 from src.utils.utils import freeze_network
 
@@ -58,8 +59,7 @@ class AdalasOPTDecoder(OPTDecoder):
         self.gradient_checkpointing = False
         self.hidden_size = config.hidden_size
         self.prop_config = self.config.propagation_config
-        if self.prop_config.propagation_mode in [PropagationMode.DYNAMIC, PropagationMode.STATIC_SKIP, PropagationMode.FULL]:
-            self.init_controllers()
+        self.init_controllers()
         self.with_metrics = config.with_metrics
         if self.with_metrics:
             self._init_metrics()
@@ -154,80 +154,79 @@ class AdalasOPTDecoder(OPTDecoder):
                     )
         layer_costs = []
         for idx, decoder_layer in enumerate(self.layers):
-            if self.prop_config.propagation_mode in [PropagationMode.DYNAMIC, PropagationMode.STATIC_SKIP, PropagationMode.FULL]:
-                controller = self.controllers[idx]
-                controller_out = controller(hidden_states) # [:, :, 0] no  skip, [:, :, 1] skip
-                gumbel_skip = controller_out[:, :, 1]
-                gumbel_keep = controller_out[:, :, 0]
-                if output_hidden_states:
-                    all_hidden_states += (hidden_states,)
+            controller = self.controllers[idx]
+            controller_out = controller(hidden_states) # [:, :, 0] no  skip, [:, :, 1] skip
+            gumbel_skip = controller_out[:, :, 1]
+            gumbel_keep = controller_out[:, :, 0]
+            if output_hidden_states:
+                all_hidden_states += (hidden_states,)
 
-                if self.training:
-                    dropout_probability = torch.rand([])
-                    if dropout_probability < self.layerdrop:
-                        continue
+            if self.training:
+                dropout_probability = torch.rand([])
+                if dropout_probability < self.layerdrop:
+                    continue
 
-                past_key_value = past_key_values[idx] if past_key_values is not None else None
+            past_key_value = past_key_values[idx] if past_key_values is not None else None
 
-                if self.gradient_checkpointing and self.training:
+            if self.gradient_checkpointing and self.training:
 
-                    def create_custom_forward(module):
-                        def custom_forward(*inputs):
-                            # None for past_key_value
-                            return module(*inputs, output_attentions, None)
+                def create_custom_forward(module):
+                    def custom_forward(*inputs):
+                        # None for past_key_value
+                        return module(*inputs, output_attentions, None)
 
-                        return custom_forward
+                    return custom_forward
 
-                    layer_outputs = torch.utils.checkpoint.checkpoint(
-                        create_custom_forward(decoder_layer),
-                        hidden_states,
-                        causal_attention_mask,
-                        head_mask[idx] if head_mask is not None else None,
-                        None,
-                    )
-                else:
-                    layer_outputs = decoder_layer(
-                        hidden_states,
-                        attention_mask=causal_attention_mask,
-                        layer_head_mask=(head_mask[idx] if head_mask is not None else None),
-                        past_key_value=past_key_value,
-                        output_attentions=output_attentions,
-                        use_cache=use_cache,
-                    )
+                layer_outputs = torch.utils.checkpoint.checkpoint(
+                    create_custom_forward(decoder_layer),
+                    hidden_states,
+                    causal_attention_mask,
+                    head_mask[idx] if head_mask is not None else None,
+                    None,
+                )
+            else:
+                layer_outputs = decoder_layer(
+                    hidden_states,
+                    attention_mask=causal_attention_mask,
+                    layer_head_mask=(head_mask[idx] if head_mask is not None else None),
+                    past_key_value=past_key_value,
+                    output_attentions=output_attentions,
+                    use_cache=use_cache,
+                )
 
-                label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1) # 1 where labels are
-                input_contains_prompt_and_label = torch.any(label_mask[:, :-1]).item()
-                update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things diff 1 where we update, 0 where we skip. Should be complement of next
-                skip_mask = label_mask * gumbel_skip
-                hidden_states = layer_outputs[0] * update_mask[:, :, None] + hidden_states * skip_mask[:, :, None]
-                train_eval_phase = 'train' if self.training else 'eval'
-                generation_lengths = torch.sum(label_mask, dim = -1)
-                num_skips_on_generation = torch.sum(skip_mask, dim = -1)
-                if self.with_cost_aware_loss and input_contains_prompt_and_label: # need to compute how many skips on generation
-                    updates_on_generation = generation_lengths - num_skips_on_generation
-                    layer_cost_per_seq = updates_on_generation / generation_lengths
-                    layer_cost_for_batch = torch.mean(layer_cost_per_seq)
-                    layer_costs.append(layer_cost_for_batch)
-                if self.with_metrics and input_contains_prompt_and_label:
-                    # compute number of skips on label
-                    with torch.no_grad():
-                        percentage_skips = num_skips_on_generation / generation_lengths
-                        if self.metrics[train_eval_phase]['percentage_skip'][idx] is None:
-                            self.metrics[train_eval_phase]['percentage_skip'][idx] = percentage_skips
-                        else:
-                            self.metrics[train_eval_phase]['percentage_skip'][idx] = torch.cat((self.metrics[train_eval_phase]['percentage_skip'][idx], percentage_skips))
-                if use_cache:
-                    next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
+            label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1) # 1 where labels are
+            input_contains_prompt_and_label = torch.any(label_mask[:, :-1]).item()
+            update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things diff 1 where we update, 0 where we skip. Should be complement of next
+            skip_mask = label_mask * gumbel_skip
+            hidden_states = layer_outputs[0] * update_mask[:, :, None] + hidden_states * skip_mask[:, :, None]
+            train_eval_phase = 'train' if self.training else 'eval'
+            generation_lengths = torch.sum(label_mask, dim = -1)
+            num_skips_on_generation = torch.sum(skip_mask, dim = -1)
+            if self.with_cost_aware_loss and input_contains_prompt_and_label: # need to compute how many skips on generation
+                updates_on_generation = generation_lengths - num_skips_on_generation
+                layer_cost_per_seq = updates_on_generation / generation_lengths
+                layer_cost_for_batch = torch.mean(layer_cost_per_seq)
+                layer_costs.append(layer_cost_for_batch)
+            if self.with_metrics and input_contains_prompt_and_label:
+                # compute number of skips on label
+                with torch.no_grad():
+                    percentage_skips = num_skips_on_generation / generation_lengths
+                    if self.metrics[train_eval_phase]['percentage_skip'][idx] is None:
+                        self.metrics[train_eval_phase]['percentage_skip'][idx] = percentage_skips
+                    else:
+                        self.metrics[train_eval_phase]['percentage_skip'][idx] = torch.cat((self.metrics[train_eval_phase]['percentage_skip'][idx], percentage_skips))
+            if use_cache:
+                next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
-                if output_attentions:
-                    #TODO: implement this - JOUD
-                    # if should_skip_layer:
-                    #     label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, None, :, None] # 1 where label is
-                    #     previous_self_attn = all_self_attns[-1]
-                    #     current_self_attn = layer_outputs[1] * torch.logical_not(label_mask) + previous_self_attn * label_mask
-                    #     all_self_attns += (current_self_attn,)
-                    # else:
-                    all_self_attns += (layer_outputs[1],)
+            if output_attentions:
+                #TODO: implement this - JOUD
+                # if should_skip_layer:
+                #     label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, None, :, None] # 1 where label is
+                #     previous_self_attn = all_self_attns[-1]
+                #     current_self_attn = layer_outputs[1] * torch.logical_not(label_mask) + previous_self_attn * label_mask
+                #     all_self_attns += (current_self_attn,)
+                # else:
+                all_self_attns += (layer_outputs[1],)
         if self.final_layer_norm is not None:
             hidden_states = self.final_layer_norm(hidden_states)
 
@@ -262,6 +261,7 @@ class AdalasOPTDecoder(OPTDecoder):
             controller_input_dim = self.hidden_size
         else:
             controller_input_dim = self.prop_config.controller_input_size
+
         if self.prop_config.controller_type == ControllerType.MLP_GUMBEL:
             self.controllers = nn.ModuleList([])
             for layer in range(len(self.layers)):
@@ -279,6 +279,10 @@ class AdalasOPTDecoder(OPTDecoder):
             elif self.prop_config.propagation_mode == PropagationMode.FULL:
                 for layer in range(len(self.layers)):
                     self.controllers.append(StaticController(False))
+        elif self.prop_config.controller_type == ControllerType.PROBABILISTIC:
+            self.controllers = []
+            for layer in range(len(self.layers)):
+                self.controllers.append(ProbabilisticController(skip_prob=self.prop_config.skip_probs[layer]))
         else:
             raise Exception('Unimplemented controller type')
 
