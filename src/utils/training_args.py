@@ -7,9 +7,15 @@ from transformers.trainer_utils import EvaluationStrategy
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
     StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
 
+class DictOverwritable(object):
+    '''allows to overwrite some attributes of a class with a dict'''
+    def update_fields(self, dict_for_update):
+        for key, value in dict_for_update.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
 
 @dataclass
-class TrainingArgs:
+class TrainingArgs(DictOverwritable):
     seed: int = 42
     learning_rate: float = 5e-5
     load_dataset_from_disk: bool = False
@@ -48,6 +54,22 @@ class TrainingArgs:
     
 
 SAVED_ARGS = {
+    "controller_warmup_fixed_input": TrainingArgs(
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10], with_fixed_input=True),
+        batch_size=4,
+        model='logs/opt-125m/databricks-dolly-15k_23-07_14-13-33/checkpoint-8000',
+        train_epochs=3,
+        eval_steps = 2000,
+        save_strategy = EvaluationStrategy.NO,
+        ddp=False,
+        fp16=False,
+        load_model_from_disk=True,
+        deepspeed='ds_config.json',
+        alpha = 3,
+        with_cost_aware_loss=True,
+        max_seq_length=256,
+        gradient_checkpointing=True
+    ),
     "controller_warmup": TrainingArgs(
         prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10]),
         batch_size=4,
@@ -59,7 +81,8 @@ SAVED_ARGS = {
         fp16=False,
         load_model_from_disk=True,
         deepspeed='ds_config.json',
-        alpha = 10,
+        alpha = 3,
+        with_cost_aware_loss=True,
         max_seq_length=256,
         gradient_checkpointing=True
     ),

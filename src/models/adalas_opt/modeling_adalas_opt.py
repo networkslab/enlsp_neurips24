@@ -266,7 +266,9 @@ class AdalasOPTDecoder(OPTDecoder):
             self.controllers = nn.ModuleList([])
             for layer in range(len(self.layers)):
                 if layer in self.prop_config.controller_layers:
-                    self.controllers.append(MLPGumbelSoftmaxController(controller_input_dim, tau=self.prop_config.gumbel_temperature))
+                    self.controllers.append(MLPGumbelSoftmaxController(controller_input_dim,
+                                                                       tau=self.prop_config.gumbel_temperature,
+                                                                       with_fixed_input=self.prop_config.with_fixed_input))
                 else:
                     self.controllers.append(StaticController(False))
         elif self.prop_config.controller_type == ControllerType.STATIC:

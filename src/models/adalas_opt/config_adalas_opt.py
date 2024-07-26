@@ -48,12 +48,17 @@ class StochasticDropoutPropagationConfig(PropagationConfig):
 
 class DynamicPropagationConfig(PropagationConfig):
     '''Uses trainable gates to determine which layers to skip or execute'''
-    def __init__(self, controller_layers, controller_input_size = None, gumbel_temperature = 1.2, controller_type = ControllerType.MLP_GUMBEL):
+    def __init__(self, controller_layers,
+                 controller_input_size = None,
+                 gumbel_temperature = 1.2,
+                 controller_type = ControllerType.MLP_GUMBEL,
+                 with_fixed_input = False):
         super().__init__(PropagationMode.DYNAMIC)
         self.gumbel_temperature = gumbel_temperature # tau parameter
         self.controller_input_size = controller_input_size
         self.controller_type = ControllerType(controller_type)
         self.controller_layers = controller_layers
+        self.with_fixed_input = with_fixed_input
 
     def to_dict(self):
         return {
@@ -62,6 +67,7 @@ class DynamicPropagationConfig(PropagationConfig):
             'controller_input_size': self.controller_input_size,
             'gumbel_temperature': self.gumbel_temperature,
             'controller_type': self.controller_type.value,
+            'with_fixed_input': self.with_fixed_input
         }
 
 MAP_PROPAGATION_MODES = {

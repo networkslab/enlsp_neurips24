@@ -12,7 +12,7 @@ from datetime import datetime
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path, fix_the_seed
+from src.utils.utils import get_abs_path, fix_the_seed, get_args
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
@@ -20,13 +20,7 @@ from src.utils.training_args import SAVED_ARGS
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--training_args", type=str, default='full_prop_args')
-    parser_args = parser.parse_args()
-    if parser_args.training_args not in SAVED_ARGS:
-        raise ValueError(f"Training args {parser_args.training_args} not found in SAVED_ARGS")
-    args = SAVED_ARGS[parser_args.training_args]
-    validate_args(args)
+    args = get_args()
     
     
 
@@ -147,11 +141,6 @@ def main():
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     trainer.train()
 
-def validate_args(args):
-    if args.prop_config.propagation_mode == PropagationMode.STATIC_SKIP:
-        assert len(args.prop_config.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
-    if args.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
-        assert len(args.prop_config.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'
 
 if __name__ == "__main__":
     main()
