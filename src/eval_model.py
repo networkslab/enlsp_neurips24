@@ -5,6 +5,7 @@ from transformers import AddedToken
 from transformers import AutoTokenizer
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
@@ -13,7 +14,8 @@ from datetime import datetime
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
 from src.utils.utils import get_abs_path, fix_the_seed
-from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
+from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
+from src.training.sft_trainer_generate import SFTConfigGenerate, SFTTrainerGenerate
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
@@ -31,7 +33,10 @@ def main():
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
-        raise Exception("DDP not supported for evaluation")
+        torch.distributed.init_process_group("nccl")
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
+        rank = int(os.environ['LOCAL_RANK']) #rank when using DDP
+        deepspeed = get_abs_path(['src','utils'])+ args.deepspeed if args.deepspeed is not None else None
     else:
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
         rank = 0
@@ -92,8 +97,14 @@ def main():
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
-    stripped_model_name = model_name.split('/')[-1]
+    
+    if args.load_model_from_disk:
+        stripped_model_name = model_name.split('/')[1]
+    else:
+        stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
+    if args.ddp:
+        torch.distributed.barrier()
     time = datetime.now()
     current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
@@ -127,6 +138,10 @@ def main():
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,
     )
+    
+    summary_writer = SummaryWriter(sft_config.logging_dir + '/custom_scalars')
+    summary_writer.add_custom_scalars(train_utils.get_tensorboard_training_layout(adalas.model.decoder))
+    metrics_callback = train_utils.MetricsCallback(summary_writer, adalas.model.decoder)
     trainer = SFTTrainerGenerate(
         model=adalas,
         args=sft_config,
@@ -135,6 +150,7 @@ def main():
         tokenizer=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
+        callbacks=[metrics_callback],
     )
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     trainer.evaluate()

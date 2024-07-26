@@ -109,6 +109,7 @@ SAVED_ARGS = {
     "warmup_gumbel_1.3_args": TrainingArgs(
         prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]),
         batch_size=2,
+        load_model_from_disk=True,
         model='results/opt-1.3b/databricks-dolly-15k_25-07_23-13-54/checkpoint-561',
         train_epochs=3,
         max_seq_length=768,
@@ -119,6 +120,21 @@ SAVED_ARGS = {
         gradient_accumulation_steps=4,
         fp16 = False
     ),
+    "eval_warmup_gumbel_1.3_args": TrainingArgs(
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/databricks-dolly-15k_26-07_03-03-54/checkpoint-561',
+        train_epochs=3,
+        max_seq_length=768,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=4,
+        fp16 = False
+    ),
+    
     "full_prop_125_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=4,

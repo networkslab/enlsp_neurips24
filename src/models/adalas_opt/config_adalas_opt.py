@@ -52,13 +52,17 @@ class DynamicPropagationConfig(PropagationConfig):
         super().__init__(PropagationMode.DYNAMIC)
         self.gumbel_temperature = gumbel_temperature # tau parameter
         self.controller_input_size = controller_input_size
-        self.controller_type = controller_type
+        self.controller_type = ControllerType(controller_type)
         self.controller_layers = controller_layers
 
     def to_dict(self):
-        return {'propagation_mode': self.propagation_mode.value, 'gumbel_temp': self.gumbel_temperature,
-                'controller_input_size': self.controller_input_size, 'controller_type': self.controller_type.value,
-                'controller_layers': self.controller_layers}
+        return {
+            'propagation_mode': self.propagation_mode.value,
+            'controller_layers': self.controller_layers, 
+            'controller_input_size': self.controller_input_size,
+            'gumbel_temperature': self.gumbel_temperature,
+            'controller_type': self.controller_type.value,
+        }
 
 MAP_PROPAGATION_MODES = {
     'full': PropagationConfig,
