@@ -7,9 +7,15 @@ from transformers.trainer_utils import EvaluationStrategy
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
     StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
 
+class DictOverwritable(object):
+    '''allows to overwrite some attributes of a class with a dict'''
+    def update_fields(self, dict_for_update):
+        for key, value in dict_for_update.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
 
 @dataclass
-class TrainingArgs:
+class TrainingArgs(DictOverwritable):
     learning_rate: float = 5e-5
     load_dataset_from_disk: bool = False
     load_model_from_disk: bool = False
@@ -59,6 +65,7 @@ SAVED_ARGS = {
         load_model_from_disk=True,
         deepspeed='ds_config.json',
         alpha = 10,
+        with_cost_aware_loss=True,
         max_seq_length=256,
         gradient_checkpointing=True
     ),
