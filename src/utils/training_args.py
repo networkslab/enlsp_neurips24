@@ -10,6 +10,7 @@ from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipP
 
 @dataclass
 class TrainingArgs:
+    seed: int = 42
     learning_rate: float = 5e-5
     load_dataset_from_disk: bool = False
     load_model_from_disk: bool = False
@@ -88,18 +89,31 @@ SAVED_ARGS = {
         fp16 = False
     ),
     "warmup_gumbel_350_args": TrainingArgs(
-        learning_rate=1e-4,
+        learning_rate=5e-5,
         prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]),
         batch_size=4,
         load_model_from_disk=True,
-        model='results/opt-350m/databricks-dolly-15k_23-07_21-08-20/checkpoint-564',
-        train_epochs=5,
+        model='results/opt-350m/databricks-dolly-15k_25-07_20-17-48/checkpoint-564',
+        train_epochs=3,
         max_seq_length=768,
         eval_strategy = "epoch",
         save_strategy = "epoch",
         ddp=True,
         deepspeed='ds_config.json',
         gradient_accumulation_steps=2,
+        fp16 = False
+    ),
+    "warmup_gumbel_1.3_args": TrainingArgs(
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]),
+        batch_size=2,
+        model='results/opt-1.3b/databricks-dolly-15k_25-07_23-13-54/checkpoint-561',
+        train_epochs=3,
+        max_seq_length=768,
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=4,
         fp16 = False
     ),
     "full_prop_125_args": TrainingArgs(
@@ -131,16 +145,16 @@ SAVED_ARGS = {
     ),
     "full_prop_1.3_args": TrainingArgs(
         prop_config=PropagationConfig(),
-        batch_size=4,
+        batch_size=2,
         model='facebook/opt-1.3b',
-        train_epochs=5,
+        train_epochs=3,
         max_seq_length=768,
         eval_strategy = "epoch",
         save_strategy = "epoch",
         ddp=True,
         deepspeed='ds_config.json',
-        gradient_accumulation_steps=2,
-        fp16 = True
+        gradient_accumulation_steps=4,
+        fp16 = False
     ),
     "static_skip_args_load": TrainingArgs(
         prop_config=StaticSkipPropagationConfig(skip_layers=[2, 6, 8]),

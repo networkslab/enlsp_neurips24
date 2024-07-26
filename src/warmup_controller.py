@@ -23,7 +23,6 @@ from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCol
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
-SEED = 42
 
 def main():
     parser = argparse.ArgumentParser()
@@ -34,7 +33,7 @@ def main():
     args = SAVED_ARGS[parser_args.training_args]
     validate_args(args)
     
-    fix_the_seed(SEED)
+    fix_the_seed(args.seed)
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
@@ -71,7 +70,7 @@ def main():
     else:
         full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
         # full_dataset = full_dataset.select(indices=range(600))
-        dataset = full_dataset.train_test_split(test_size=0.2,seed=SEED)
+        dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
         tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
         tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
 
@@ -104,7 +103,7 @@ def main():
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
     if args.load_model_from_disk:
-        stripped_model_name = model_name.split('/')[-2] + '/' + model_name.split('/')[-1]
+        stripped_model_name = model_name.split('/')[1]
     else:
         stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
