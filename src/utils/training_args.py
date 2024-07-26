@@ -38,6 +38,8 @@ class TrainingArgs:
     skip_prompt: bool = False
     max_new_tokens: int = 200
     fp16: bool = True
+    with_cost_aware_loss: bool = False
+    alpha: float = 0.0,
     save_dataset_dir: Optional[str] = None
     save_model_pretrain_dir: Optional[str] = None
     deepspeed: Optional[str] = None
@@ -51,12 +53,13 @@ SAVED_ARGS = {
         batch_size=4,
         model='logs/opt-125m/databricks-dolly-15k_23-07_14-13-33/checkpoint-8000',
         train_epochs=3,
-        eval_steps = 200,
+        eval_steps = 2000,
         save_strategy = EvaluationStrategy.NO,
         ddp=False,
         fp16=False,
         load_model_from_disk=True,
         deepspeed='ds_config.json',
+        alpha = 10,
         max_seq_length=256,
         gradient_checkpointing=True
     ),

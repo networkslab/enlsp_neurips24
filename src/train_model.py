@@ -13,7 +13,8 @@ from datetime import datetime
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
 from src.utils.utils import get_abs_path, fix_the_seed
-from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
+from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
+from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 

@@ -19,7 +19,8 @@ from transformers.trainer_utils import EvaluationStrategy
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
 from src.utils.utils import get_abs_path, fix_the_seed
-from src.utils.train_utils import SFTConfigGenerate, SFTTrainerGenerate, DataCollatorForSeq2SeqGenerate
+from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
+from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS
 
@@ -84,6 +85,8 @@ def main():
     if args.load_model_from_disk:
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
         adalas_config.propagation_config = args.prop_config
+        adalas_config.with_cost_aware_loss = args.with_cost_aware_loss
+        adalas_config.alpha = args.alpha
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
         print(f"Loading model from {model_name}. Model config parameters will be ignored")
     else:
