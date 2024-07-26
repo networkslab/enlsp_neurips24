@@ -68,8 +68,11 @@ class AdalasOPTDecoder(OPTDecoder):
         self.with_cost_aware_loss = config.with_cost_aware_loss
 
     def _init_metrics(self):
-        self.metrics = {'train': {'percentage_skip': [[] for _ in range(len(self.layers))]},
-                        'eval': {'percentage_skip': [[] for _ in range(len(self.layers))]}}
+        self.metrics = {'train': self._init_metric_dict_for_phase(),
+                        'eval': self._init_metric_dict_for_phase()}
+
+    def _init_metric_dict_for_phase(self):
+        return {'percentage_skip': [[] for _ in range(len(self.layers))]}
 
     def forward(
         self,
@@ -193,26 +196,19 @@ class AdalasOPTDecoder(OPTDecoder):
                     )
 
                 label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1) # 1 where labels are
-
+                input_contains_prompt_and_label = torch.any(label_mask[:, :-1]).item()
                 update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things diff 1 where we update, 0 where we skip. Should be complement of next
                 skip_mask = label_mask * gumbel_skip
                 hidden_states = layer_outputs[0] * update_mask[:, :, None] + hidden_states * skip_mask[:, :, None]
                 train_eval_phase = 'train' if self.training else 'eval'
-                if self.training:
-                    generation_lengths = torch.sum(label_mask, dim = -1)
-                    is_generation = True
-                    num_skips_on_generation = torch.sum(skip_mask, dim = -1)
-                else: # when in eval mode, the prompt is passed first as input ids. After this input ids is B x 1 (one token at a time)
-                    is_generation = past_key_values_length > 0
-                    num_skips_on_generation = torch.sum(gumbel_skip, dim = -1) # need to disregard label mask
-                    generation_lengths = torch.ones_like(num_skips_on_generation)
-
-                if self.with_cost_aware_loss and is_generation: # need to compute how many skips on generation
+                generation_lengths = torch.sum(label_mask, dim = -1)
+                num_skips_on_generation = torch.sum(skip_mask, dim = -1)
+                if self.with_cost_aware_loss and input_contains_prompt_and_label: # need to compute how many skips on generation
                     updates_on_generation = generation_lengths - num_skips_on_generation
                     layer_cost_per_seq = updates_on_generation / generation_lengths
                     layer_cost_for_batch = torch.mean(layer_cost_per_seq)
                     layer_costs.append(layer_cost_for_batch)
-                if self.with_metrics and is_generation:
+                if self.with_metrics and input_contains_prompt_and_label:
                     # compute number of skips on label
                     with torch.no_grad():
                         percentage_skips = num_skips_on_generation / generation_lengths
@@ -285,9 +281,12 @@ class AdalasOPTDecoder(OPTDecoder):
     def freeze_backbone(self):
         freeze_network(self, ['controllers'])
 
-    def flush_metrics(self):
+    def flush_metrics(self, phase = None):
         ''' should typically be called after every logging step in the callback'''
-        self._init_metrics()
+        if phase is None:
+            self._init_metrics()
+        else:
+            self.metrics[phase] = self._init_metric_dict_for_phase()
 
 class AdalasOPTModel(OPTModel):
     def __init__(self, config: AdalasOPTConfig):

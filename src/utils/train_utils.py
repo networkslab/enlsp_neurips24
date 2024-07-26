@@ -314,7 +314,7 @@ class MetricsCallback(TensorBoardCallback):
             if len(skip_per_seq) > 0:
                 avg_perc_skip = torch.mean(torch.cat(skip_per_seq)).item()
                 self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step)
-        self.model.flush_metrics()
+        self.model.flush_metrics(phase)
 
 
 def get_tensorboard_training_layout(decoder: AdalasOPTDecoder):
