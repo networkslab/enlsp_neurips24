@@ -193,9 +193,14 @@ class AdalasOPTDecoder(OPTDecoder):
                     output_attentions=output_attentions,
                     use_cache=use_cache,
                 )
-
-            label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1) # 1 where labels are
-            input_contains_prompt_and_label = torch.any(label_mask[:, :-1]).item()
+            input_contains_prompt = torch.any(input_ids == separation_token).item()
+            if input_contains_prompt:
+                label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)  # 1 where labels are, assuming prompt is present. Includes the last SEP token
+                label_mask = torch.where(input_ids == separation_token, 0, label_mask) #removes last SEP token from the label mask
+                input_contains_prompt_and_label = torch.any(label_mask[:, :]).item() #will return false during the first forward pass of generation, and true during training
+            else:
+                label_mask = torch.ones_like(input_ids) # during autoregressive gen, all tokens are labels
+                input_contains_prompt_and_label = False #if there is no prompt then there is no prampt and label
             update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things diff 1 where we update, 0 where we skip. Should be complement of next
             skip_mask = label_mask * gumbel_skip
             hidden_states = layer_outputs[0] * update_mask[:, :, None] + hidden_states * skip_mask[:, :, None]
