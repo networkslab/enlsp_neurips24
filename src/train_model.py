@@ -9,6 +9,7 @@ import torch
 from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
 from datetime import datetime
+from time import sleep
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
@@ -58,11 +59,18 @@ def main():
         tokenized_dataset = load_from_disk(get_abs_path(['data', 'datasets', args.dataset]))
     
     else:
-        full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-        #full_dataset = full_dataset.select(indices=range(200))
-        dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
-        tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-        tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+        if dataset_name == 'Samsung/samsum':
+            dataset = load_dataset(dataset_name)
+            dataset['test'] = dataset['validation']
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    
+        else:
+            full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
+            #full_dataset = full_dataset.select(indices=range(200))
+            dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
     
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
@@ -71,6 +79,10 @@ def main():
   
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
+
+    #sleep to stagger the model loading, in order to avoid high peak RAM use
+    sleep(rank*20)
+    print(f'rank {rank} starting model loading')
 
     #Model
     if args.load_model_from_disk:

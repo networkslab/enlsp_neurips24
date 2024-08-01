@@ -7,9 +7,11 @@ from transformers import AutoTokenizer
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+
 from datasets import load_dataset, Split, load_from_disk, DatasetDict
 import argparse
 from datetime import datetime
+from time import sleep
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
@@ -57,23 +59,36 @@ def main():
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
 
     else:
-        full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-        #full_dataset = full_dataset.select(indices=range(200))
-        dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
-        tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-        tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-
+        if dataset_name == 'Samsung/samsum':
+            dataset = load_dataset(dataset_name)
+            dataset['test'] = dataset['validation']
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+        else:
+            full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
+            #full_dataset = full_dataset.select(indices=range(200))
+            dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
-
+        
 
 
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
+    #sleep to stagger the model loading, in order to avoid high peak RAM use
+    sleep(rank*20)
+    print(f'rank {rank} starting model loading')
+
     #Model
     if args.load_model_from_disk:
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
+        adalas_config.propagation_config = args.prop_config
+        adalas_config.with_cost_aware_loss = args.with_cost_aware_loss
+        adalas_config.alpha = args.alpha
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
         print(f"Loading model from {model_name}. Model config parameters will be ignored")
     else:
@@ -82,6 +97,8 @@ def main():
         adalas_config.propagation_config = propagation_config
         adalas_config.skip_prompt = args.skip_prompt
         adalas_config.sep_token_id = tokenizer.sep_token_id
+        adalas_config.with_cost_aware_loss = args.with_cost_aware_loss
+        adalas_config.alpha = args.alpha
         adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
 
     if args.fp16:
@@ -105,7 +122,7 @@ def main():
 
     #Metrics
     def compute_metrics(eval_pred):
-        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True)
+        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True,fname=current_time_str)
 
     #Training
     sft_config = SFTConfigGenerate(

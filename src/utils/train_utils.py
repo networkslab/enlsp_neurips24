@@ -20,9 +20,10 @@ import inspect
 from src.utils.training_args import DATASET_KEYS
 import copy
 import pandas as pd
+import zlib
     
 
-def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20):
+def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time"):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -69,16 +70,19 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20)
         json.dump(examples, f, ensure_ascii=False, indent=4)
 
     if save_rouge:
-        #save individual rouge scores and sequence length
+        #save individual rouge scores, sequence length and hash of the prompt
         r = rouge_score.compute(predictions=predictions, references=labels,
                                 use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
                                 use_aggregator=False)
         label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
         prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
         prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
+        #hash the prompt
+        hashes = [zlib.adler32(input.encode('utf-8')) for input in inputs] 
         #save to pandas dataframe
         df = pd.DataFrame(
             {
+                "hash": hashes,
                 "rouge1": r["rouge1"],
                 "rouge2": r["rouge2"],
                 "rougeL": r["rougeL"],
@@ -87,7 +91,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20)
                 "prompt_length": prompt_lengths
             })
         #save to csv
-        df.to_csv(f'{get_abs_path(["logs"])}/rouge_scores.csv', index=False)
+        df.to_csv(f'{get_abs_path(["logs"])}/hashed_rouge_scores_{fname}.csv', index=False)
     return {k: round(v,4) for k,v in result.items()}
 
 

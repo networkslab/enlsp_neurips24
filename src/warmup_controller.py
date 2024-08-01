@@ -13,6 +13,7 @@ from datetime import datetime
 
 import numpy as np
 import copy
+from time import sleep
 
 from transformers.trainer_utils import EvaluationStrategy
 
@@ -35,7 +36,7 @@ def main():
     if args.ddp:
         torch.distributed.init_process_group("nccl")
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
-        rank = os.environ['LOCAL_RANK'] #rank when using DDP
+        rank = int(os.environ['LOCAL_RANK']) #rank when using DDP
         deepspeed = get_abs_path(['src','utils'])+ args.deepspeed if args.deepspeed is not None else None
     else:
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -76,6 +77,10 @@ def main():
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
+    #sleep to stagger the model loading, in order to avoid high peak RAM use
+    sleep(rank*20)
+    print(f'rank {rank} starting model loading')
+
     #Model
     if args.load_model_from_disk:
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
@@ -83,6 +88,7 @@ def main():
         adalas_config.with_cost_aware_loss = args.with_cost_aware_loss
         adalas_config.alpha = args.alpha
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
+        print(f'Alpha: {args.alpha}')
         print(f"Loading model from {model_name}. Model config parameters will be ignored")
     else:
         propagation_config = args.prop_config
