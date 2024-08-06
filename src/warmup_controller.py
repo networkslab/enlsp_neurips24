@@ -65,15 +65,22 @@ def main():
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
 
     else:
-        full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-        # full_dataset = full_dataset.select(indices=range(600))
-        dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
-        tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-        tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-
+        if dataset_name == 'Samsung/samsum':
+            dataset = load_dataset(dataset_name)
+            dataset['test'] = dataset['validation']
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    
+        else:
+            full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
+            #full_dataset = full_dataset.select(indices=range(200))
+            dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
-
+            
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
@@ -100,7 +107,7 @@ def main():
 
     if args.fp16:
         adalas = adalas.to(torch.float16)
-    adalas.freeze_backbone_and_head()
+    #adalas.freeze_backbone_and_head() #############################################################################################
 
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
