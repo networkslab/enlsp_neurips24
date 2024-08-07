@@ -294,7 +294,7 @@ class AdalasOPTDecoder(OPTDecoder):
             raise Exception('Unimplemented controller type')
 
     def prepare_controller_input(self, hidden_states, pos_embeds, inputs_embeds):
-        if self.prop_config.hasattr('controller_input_type') and self.prop_config.controller_input_type is not None:
+        if hasattr(self.prop_config,'controller_input_type') and self.prop_config.controller_input_type is not None:
             if self.prop_config.controller_input_type == ControllerInputType.HIDDEN_STATES:
                 return hidden_states
             elif self.prop_config.controller_input_type == ControllerInputType.POS_EMBEDS:

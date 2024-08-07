@@ -315,6 +315,7 @@ class MetricsCallback(TensorBoardCallback):
     def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         phase = 'train' if self.model.training else 'eval' # move this to an enum
         percentage_skip_per_controller_per_seq = self.model.metrics[phase]['percentage_skip']
+        cross_layer_avg_perc_skip = []
         for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
             if (skip_per_seq is not None) and len(skip_per_seq) > 0:
                 #check if process is distributed
@@ -324,10 +325,16 @@ class MetricsCallback(TensorBoardCallback):
                     skip_per_seq_tensor_gathered = torch.cat(output_tensors, dim=0)
                     avg_perc_skip = torch.mean(skip_per_seq_tensor_gathered).item()
                     if state.is_world_process_zero:
+                        cross_layer_avg_perc_skip.append(avg_perc_skip)
                         self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step) # only log on one process
                 else:
                     avg_perc_skip = torch.mean(skip_per_seq).item()
+                    cross_layer_avg_perc_skip.append(avg_perc_skip)
                     self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step)
+        if dist.is_available() and dist.is_initialized() and state.is_world_process_zero:
+            self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
+        elif not dist.is_available():
+            self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
         self.model.flush_metrics(phase)
 
 
