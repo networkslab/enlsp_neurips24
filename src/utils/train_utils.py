@@ -10,6 +10,7 @@ from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTDecoder
 from src.utils.utils import get_abs_path
 import json
 from torch import nn
+import torch.distributed as dist
 from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from trl.trainer import SFTTrainer, SFTConfig
@@ -19,9 +20,10 @@ import inspect
 from src.utils.training_args import DATASET_KEYS
 import copy
 import pandas as pd
+import zlib
     
 
-def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20):
+def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time"):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -68,16 +70,19 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20)
         json.dump(examples, f, ensure_ascii=False, indent=4)
 
     if save_rouge:
-        #save individual rouge scores and sequence length
+        #save individual rouge scores, sequence length and hash of the prompt
         r = rouge_score.compute(predictions=predictions, references=labels,
                                 use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
                                 use_aggregator=False)
         label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
         prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
         prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
+        #hash the prompt
+        hashes = [zlib.adler32(input.encode('utf-8')) for input in inputs] 
         #save to pandas dataframe
         df = pd.DataFrame(
             {
+                "hash": hashes,
                 "rouge1": r["rouge1"],
                 "rouge2": r["rouge2"],
                 "rougeL": r["rougeL"],
@@ -86,7 +91,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20)
                 "prompt_length": prompt_lengths
             })
         #save to csv
-        df.to_csv(f'{get_abs_path(["logs"])}/rouge_scores.csv', index=False)
+        df.to_csv(f'{get_abs_path(["logs"])}/hashed_rouge_scores_{fname}.csv', index=False)
     return {k: round(v,4) for k,v in result.items()}
 
 
@@ -311,9 +316,18 @@ class MetricsCallback(TensorBoardCallback):
         phase = 'train' if self.model.training else 'eval' # move this to an enum
         percentage_skip_per_controller_per_seq = self.model.metrics[phase]['percentage_skip']
         for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
-            if len(skip_per_seq) > 0:
-                avg_perc_skip = torch.mean(torch.cat(skip_per_seq)).item()
-                self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step)
+            if (skip_per_seq is not None) and len(skip_per_seq) > 0:
+                #check if process is distributed
+                if dist.is_available() and dist.is_initialized():
+                    output_tensors = [skip_per_seq.clone() for _ in range(dist.get_world_size())]
+                    dist.all_gather(output_tensors, skip_per_seq) # gather all tensors from all processes
+                    skip_per_seq_tensor_gathered = torch.cat(output_tensors, dim=0)
+                    avg_perc_skip = torch.mean(skip_per_seq_tensor_gathered).item()
+                    if state.is_world_process_zero:
+                        self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step) # only log on one process
+                else:
+                    avg_perc_skip = torch.mean(skip_per_seq).item()
+                    self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step)
         self.model.flush_metrics(phase)
 
 

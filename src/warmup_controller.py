@@ -13,6 +13,7 @@ from datetime import datetime
 
 import numpy as np
 import copy
+from time import sleep
 
 from transformers.trainer_utils import EvaluationStrategy
 
@@ -25,17 +26,17 @@ import src.utils.train_utils as train_utils
 from src.utils.training_args import SAVED_ARGS, TrainingArgs
 import dataclasses
 
-SEED = 42
 
 def main():
     args = get_args()
     
-    fix_the_seed(SEED)
+    fix_the_seed(args.seed)
 
     transformers.logging.set_verbosity_info()
     if args.ddp:
+        torch.distributed.init_process_group("nccl")
         os.environ["TOKENIZERS_PARALLELISM"] = "false"
-        rank = os.environ['LOCAL_RANK'] #rank when using DDP
+        rank = int(os.environ['LOCAL_RANK']) #rank when using DDP
         deepspeed = get_abs_path(['src','utils'])+ args.deepspeed if args.deepspeed is not None else None
     else:
         os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -64,17 +65,28 @@ def main():
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
 
     else:
-        full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-        # full_dataset = full_dataset.select(indices=range(200))
-        dataset = full_dataset.train_test_split(test_size=0.2,seed=SEED)
-        tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-        tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-
+        if dataset_name == 'Samsung/samsum':
+            dataset = load_dataset(dataset_name)
+            dataset['test'] = dataset['validation']
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    
+        else:
+            full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
+            #full_dataset = full_dataset.select(indices=range(200))
+            dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
+            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
-
+            
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
+
+    #sleep to stagger the model loading, in order to avoid high peak RAM use
+    sleep(rank*20)
+    print(f'rank {rank} starting model loading')
 
     #Model
     if args.load_model_from_disk:
@@ -83,6 +95,7 @@ def main():
         adalas_config.with_cost_aware_loss = args.with_cost_aware_loss
         adalas_config.alpha = args.alpha
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
+        print(f'Alpha: {args.alpha}')
         print(f"Loading model from {model_name}. Model config parameters will be ignored")
     else:
         propagation_config = args.prop_config
@@ -94,15 +107,21 @@ def main():
 
     if args.fp16:
         adalas = adalas.to(torch.float16)
-    adalas.freeze_backbone_and_head()
+    #adalas.freeze_backbone_and_head() #############################################################################################
 
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
 
-    stripped_model_name = model_name.split('/')[-1]
+    if args.load_model_from_disk:
+        stripped_model_name = model_name.split('/')[1]
+    else:
+        stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
-    current_time_str = datetime.now().strftime("%d-%m_%H-%M-%S")
+    if args.ddp:
+        torch.distributed.barrier()
+    time = datetime.now()
+    current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
     # Metrics
@@ -113,7 +132,7 @@ def main():
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
         packing=False,
-        output_dir=get_abs_path(['logs', output_dir_name]),
+        output_dir=get_abs_path(['results', output_dir_name]),
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps= args.gradient_accumulation_steps,
@@ -133,7 +152,8 @@ def main():
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,
     )
-    summary_writer = SummaryWriter(sft_config.logging_dir)
+    
+    summary_writer = SummaryWriter(sft_config.logging_dir + '/custom_scalars')
     summary_writer.add_custom_scalars(train_utils.get_tensorboard_training_layout(adalas.model.decoder))
     metrics_callback = train_utils.MetricsCallback(summary_writer, adalas.model.decoder)
     trainer = SFTTrainerGenerate(
@@ -144,7 +164,7 @@ def main():
         tokenizer=tokenizer,
         data_collator=collator,
         compute_metrics=compute_metrics,
-        callbacks=[metrics_callback]
+        callbacks=[metrics_callback],
     )
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
     # trainer.evaluate()
