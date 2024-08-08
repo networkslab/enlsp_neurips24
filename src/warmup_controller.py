@@ -148,6 +148,8 @@ def main():
         include_inputs_for_metrics=True,
         eval_with_generate=True,
         max_new_tokens=args.max_new_tokens,
+        do_sample=args.generate_do_sample,
+        temperature=args.generate_temperature,
         deepspeed=deepspeed,
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,

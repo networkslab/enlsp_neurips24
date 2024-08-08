@@ -43,6 +43,8 @@ class TrainingArgs(DictOverwritable):
     ddp: bool = True
     skip_prompt: bool = False
     max_new_tokens: int = 200
+    generate_do_sample: bool = False
+    generate_temperature: float = 1.0
     fp16: bool = True
     with_cost_aware_loss: bool = False
     alpha: float = 0.0,
