@@ -296,17 +296,25 @@ class AdalasOPTDecoder(OPTDecoder):
     def prepare_controller_input(self, hidden_states, pos_embeds, inputs_embeds):
         if hasattr(self.prop_config,'controller_input_type') and self.prop_config.controller_input_type is not None:
             if self.prop_config.controller_input_type == ControllerInputType.HIDDEN_STATES:
-                return hidden_states
+                return hidden_states.detach()
             elif self.prop_config.controller_input_type == ControllerInputType.POS_EMBEDS:
-                return pos_embeds
+                #standardize pos_embeds to std 1
+                pos_embeds_cpy = 10*pos_embeds.detach().clone()
+                pos_embeds_cpy = (pos_embeds_cpy - pos_embeds_cpy.mean()) / pos_embeds.std()
+                return pos_embeds_cpy
             elif self.prop_config.controller_input_type == ControllerInputType.INPUTS_EMBEDS:
-                return inputs_embeds
+                #detached inputs_embeds, and standardize pos_embeds
+                inputs_embeds_cpy = 10*inputs_embeds.detach().clone()
+                inputs_embeds_cpy = (inputs_embeds_cpy - inputs_embeds_cpy.mean()) / inputs_embeds.std()
+                return inputs_embeds_cpy
             elif self.prop_config.controller_input_type == ControllerInputType.INITIAL_STATE:
-                return inputs_embeds + pos_embeds
+                intial_state = (inputs_embeds + pos_embeds)
+                intial_state = 10*(intial_state - intial_state.mean()) / intial_state.std()
+                return intial_state.detach()
             else:
                 raise Exception('Unimplemented controller input type')
         else:
-            return hidden_states
+            return hidden_states.detach()
 
     def freeze_backbone(self):
         freeze_network(self, ['controllers'])
