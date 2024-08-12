@@ -61,7 +61,7 @@ def main():
     else:
         if dataset_name == 'Samsung/samsum':
             dataset = load_dataset(dataset_name)
-            dataset['test'] = dataset['train'] ###########
+            dataset['test'] = dataset['validation']
             tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
             tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
         else:

@@ -14,7 +14,7 @@ class SFTConfigGenerate(SFTConfig):
     max_new_tokens: Optional[int] = 10
     do_sample: Optional[bool] = False
     temperature: Optional[float] = 1.0
-    top_k: Optional[int] = 5
+    top_k: Optional[int] = 0
 
 
 class SFTTrainerGenerate(SFTTrainer):

@@ -173,7 +173,7 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         return model_inputs
         
     tokenized_dataset_train = dataset['train'].map(tokenize_function, batched=True)
-    tokenized_dataset_val = dataset['test'].map(tokenize_function_eval, batched=True)
+    tokenized_dataset_val = dataset['validation'].map(tokenize_function_eval, batched=True)
     
     return tokenized_dataset_train, tokenized_dataset_val
   

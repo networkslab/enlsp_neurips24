@@ -19,7 +19,7 @@ class DictOverwritable(object):
 class TrainingArgs(DictOverwritable):
     seed: int = 42
     learning_rate: float = 5e-5
-    load_dataset_from_disk: bool = False
+    tokenized_dataset_path: str = None
     load_model_from_disk: bool = False
     dataset: str = 'databricks/databricks-dolly-15k'
     model: str = 'facebook/opt-125M'
