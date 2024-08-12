@@ -8,6 +8,8 @@ from src.models.controllers.controller_types import ControllerInputType
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
     StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
 
+from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm
+
 class DictOverwritable(object):
     '''allows to overwrite some attributes of a class with a dict'''
     def update_fields(self, dict_for_update):
@@ -896,10 +898,12 @@ DATASET_KEYS ={
     "databricks/databricks-dolly-15k": {
         "prompt": "instruction",
         "context": "context",
-        "response": "response"
+        "response": "response",
+        "prepare_fnc": prepare_databricks
     },
     "Samsung/samsum": {
         "prompt": "dialogue",
-        "response": "summary"
+        "response": "summary",
+        "prepare_fnc": prepare_samsum
     }
 }
