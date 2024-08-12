@@ -7,8 +7,7 @@ from peft import LoraConfig, TaskType, get_peft_model, LoftQConfig
 
 import torch
 
-from datasets import load_dataset, Split, load_from_disk, DatasetDict
-import argparse
+from datasets import load_from_disk
 from datetime import datetime
 from time import sleep
 
@@ -18,7 +17,7 @@ from src.utils.utils import get_abs_path, fix_the_seed, get_args
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
-from src.utils.training_args import SAVED_ARGS
+from src.utils.train_utils import DATASET_KEYS
 
 
 def main():
@@ -44,7 +43,6 @@ def main():
     
     #tokenizer
     sep_token = AddedToken("<SEP>", lstrip=False, rstrip=False)
-    # TODO update model to account for expanded vocab
     tokenizer = AutoTokenizer.from_pretrained(
         get_abs_path([model_name]) if args.load_model_from_disk else model_name, 
         padding_side='left', use_fast=False, 
@@ -54,6 +52,24 @@ def main():
     #templates
     instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False) ['input_ids'] + [tokenizer.sep_token_id]
     response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
+
+    #Dataset
+    if args.tokenized_dataset_path is not None:
+        tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.tokenized_dataset_path]))
+
+    else:
+        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args, instruction_template_ids, response_template_ids)
+
+        if args.save_dataset_dir is not None and rank == 0:
+            tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
+        
+  
+    #DataCollator
+    collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
+
+    #sleep to stagger the model loading, in order to avoid high peak RAM use
+    sleep(rank*20)
+    print(f'rank {rank} starting model loading')
 
     #Model
     if args.load_model_from_disk:
@@ -68,38 +84,6 @@ def main():
         adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
 
-    #Dataset
-    if args.load_dataset_from_disk:
-        tokenized_dataset = load_from_disk(get_abs_path(['data', 'datasets', args.dataset]))
-    
-    else:
-        if dataset_name == 'Samsung/samsum':
-            dataset = load_dataset(dataset_name)
-            dataset['test'] = dataset['validation']
-            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-    
-        else:
-            full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-            # full_dataset = full_dataset.select(indices=range(200))
-            dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
-            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-    
-        if args.save_dataset_dir is not None and rank == 0:
-            tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
-        
-        
-  
-    #DataCollator
-    collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
-
-    #sleep to stagger the model loading, in order to avoid high peak RAM use
-    sleep(rank*20)
-    print(f'rank {rank} starting model loading')
-
-
-        
     if args.fp16:
         adalas = adalas.to(torch.float16)
     
