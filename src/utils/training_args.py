@@ -3,9 +3,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from transformers.trainer_utils import EvaluationStrategy
+from src.models.controllers.controller_types import ControllerInputType
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
     StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
+
 
 class DictOverwritable(object):
     '''allows to overwrite some attributes of a class with a dict'''
@@ -18,7 +20,8 @@ class DictOverwritable(object):
 class TrainingArgs(DictOverwritable):
     seed: int = 42
     learning_rate: float = 5e-5
-    load_dataset_from_disk: bool = False
+    tokenized_dataset_path: str = None
+    load_dataset_from_disk: bool = False #deprecated for tokenized_dataset_path
     load_model_from_disk: bool = False
     dataset: str = 'databricks/databricks-dolly-15k'
     model: str = 'facebook/opt-125M'
@@ -43,6 +46,8 @@ class TrainingArgs(DictOverwritable):
     ddp: bool = True
     skip_prompt: bool = False
     max_new_tokens: int = 200
+    generate_do_sample: bool = False
+    generate_temperature: float = 1.0
     fp16: bool = True
     with_cost_aware_loss: bool = False
     alpha: float = 0.0,
@@ -349,6 +354,186 @@ SAVED_ARGS = {
         gradient_accumulation_steps=3,
         fp16 = False
     ),
+    "SM_warmup_gumbel_3L_alpha_0_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22],layers=3,divisor=8),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/full_prop_30-07_23-59-18/checkpoint-459',
+        train_epochs=3,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        alpha = 0,
+        with_cost_aware_loss=True,
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_warmup_gumbel_pos_alpha_0_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.POS_EMBEDS),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/full_prop_30-07_23-59-18/checkpoint-459',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        alpha = 0,
+        with_cost_aware_loss=True,
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_warmup_gumbel_inpEmb_alpha_0_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.INPUTS_EMBEDS),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/full_prop_30-07_23-59-18/checkpoint-459',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        alpha = 0,
+        with_cost_aware_loss=True,
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_warmup_gumbel_initial_alpha_0_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.INITIAL_STATE),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/full_prop_30-07_23-59-18/checkpoint-459',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        alpha = 0,
+        with_cost_aware_loss=True,
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_warmup_fixed_gumbel_alpha_0_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22],with_fixed_input = True),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/full_prop_30-07_23-59-18/checkpoint-459',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        alpha = 0,
+        with_cost_aware_loss=True,
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_gumbel_alpha_0.5_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/dynamic_alpha_0.5_06-08_16-28-53/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_gumbel_3L_alpha_2_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22],layers=3,divisor=8),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/3L_dynamic_alpha_2_06-08_22-51-21/checkpoint-612',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_fixed_gumbel_alpha_0.5_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22],with_fixed_input = True),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/fixed_input_alpha_0.5_06-08_19-30-28/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_fixed_gumbel_alpha_2_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22],with_fixed_input = True),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/fixed_input_alpha_2_07-08_16-04-21/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_fixed_gumbel_alpha_6_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22],with_fixed_input = True),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/fixed_input_alpha_6_07-08_17-59-01/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
     "SM_eval_gumbel_alpha_2_1.3_args": TrainingArgs(
         dataset='Samsung/samsum',
         prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22]),
@@ -361,7 +546,6 @@ SAVED_ARGS = {
         response_template= "\n### Summary:",
         eval_strategy = "epoch",
         save_strategy = "epoch",
-        alpha = 0,
         ddp=True,
         deepspeed=None,
         gradient_accumulation_steps=3,
@@ -379,7 +563,6 @@ SAVED_ARGS = {
         response_template= "\n### Summary:",
         eval_strategy = "epoch",
         save_strategy = "epoch",
-        alpha = 0,
         ddp=True,
         deepspeed=None,
         gradient_accumulation_steps=3,
@@ -397,7 +580,108 @@ SAVED_ARGS = {
         response_template= "\n### Summary:",
         eval_strategy = "epoch",
         save_strategy = "epoch",
-        alpha = 0,
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_inpEmb_gumbel_alpha_2_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.INPUTS_EMBEDS),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/inpEmb_dynamic_alpha_2_10std_08-08_00-01-31/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_inpEmb_gumbel_alpha_6_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.INPUTS_EMBEDS),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/inpEmb_dynamic_alpha_6_10std_08-08_03-05-54/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_pos_gumbel_alpha_2_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.POS_EMBEDS),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/pos_dynamic_alpha_2_10std_08-08_04-41-29/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_pos_gumbel_alpha_6_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.POS_EMBEDS),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/pos_dynamic_alpha_6_10std_08-08_06-18-21/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_initial_gumbel_alpha_2_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.INITIAL_STATE),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/initial_dynamic_alpha_2_10std_08-08_07-54-21/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
+        ddp=True,
+        deepspeed=None,
+        gradient_accumulation_steps=3,
+        fp16 = False
+    ),
+    "SM_eval_initial_gumbel_alpha_6_1.3_args": TrainingArgs(
+        dataset='Samsung/samsum',
+        prop_config=DynamicPropagationConfig(controller_layers=[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22], controller_input_type=ControllerInputType.INITIAL_STATE),
+        batch_size=3,
+        load_model_from_disk=True,
+        model='results/opt-1.3b/SAMSUM/initial_dynamic_alpha_6_10std_08-08_09-30-17/checkpoint-408',
+        train_epochs=2,
+        max_seq_length=768,
+        instruction_template = "### Dialogue:",
+        response_template= "\n### Summary:",
+        eval_strategy = "epoch",
+        save_strategy = "epoch",
         ddp=True,
         deepspeed=None,
         gradient_accumulation_steps=3,
@@ -490,6 +774,8 @@ SAVED_ARGS = {
     ),
     "SM_eval_ULS_1.0x_1.3_args": TrainingArgs(
         dataset='Samsung/samsum',
+        save_dataset_dir='samsum',
+        tokenized_dataset_path='samsum',
         prop_config=PropagationConfig(),
         batch_size=4,
         load_model_from_disk=True,
@@ -609,14 +895,4 @@ SAVED_ARGS = {
     ),
 }
 
-DATASET_KEYS ={
-    "databricks/databricks-dolly-15k": {
-        "prompt": "instruction",
-        "context": "context",
-        "response": "response"
-    },
-    "Samsung/samsum": {
-        "prompt": "dialogue",
-        "response": "summary"
-    }
-}
+

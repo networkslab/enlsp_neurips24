@@ -12,7 +12,7 @@ import torch
 from torch import nn
 
 from src.models.adalas_opt.modelling_adalas_opt_modules import AdalasOPTDecoderLayer
-from src.models.controllers.controller_types import ControllerType
+from src.models.controllers.controller_types import ControllerType, ControllerInputType
 from src.models.controllers.mlp_gumbel_softmax_controller import MLPGumbelSoftmaxController
 from src.models.controllers.probabilistic_controller import ProbabilisticController
 from src.models.controllers.static_controller import StaticController
@@ -155,7 +155,8 @@ class AdalasOPTDecoder(OPTDecoder):
         layer_costs = []
         for idx, decoder_layer in enumerate(self.layers):
             controller = self.controllers[idx]
-            controller_out = controller(hidden_states) # [:, :, 0] no  skip, [:, :, 1] skip
+            controller_input = self.prepare_controller_input(hidden_states, pos_embeds, inputs_embeds)
+            controller_out = controller(controller_input) # [:, :, 0] no  skip, [:, :, 1] skip
             gumbel_skip = controller_out[:, :, 1]
             gumbel_keep = controller_out[:, :, 0]
             if output_hidden_states:
@@ -273,7 +274,8 @@ class AdalasOPTDecoder(OPTDecoder):
                 if layer in self.prop_config.controller_layers:
                     self.controllers.append(MLPGumbelSoftmaxController(controller_input_dim,
                                                                        tau=self.prop_config.gumbel_temperature,
-                                                                       with_fixed_input=self.prop_config.with_fixed_input))
+                                                                       with_fixed_input=self.prop_config.with_fixed_input,
+                                                                       layers=self.prop_config.layers, divisor=self.prop_config.divisor))
                 else:
                     self.controllers.append(StaticController(False))
         elif self.prop_config.controller_type == ControllerType.STATIC:
@@ -291,6 +293,28 @@ class AdalasOPTDecoder(OPTDecoder):
         else:
             raise Exception('Unimplemented controller type')
 
+    def prepare_controller_input(self, hidden_states, pos_embeds, inputs_embeds):
+        if hasattr(self.prop_config,'controller_input_type') and self.prop_config.controller_input_type is not None:
+            if self.prop_config.controller_input_type == ControllerInputType.HIDDEN_STATES:
+                return hidden_states.detach()
+            elif self.prop_config.controller_input_type == ControllerInputType.POS_EMBEDS:
+                #standardize pos_embeds to std 1
+                pos_embeds_cpy = 10*pos_embeds.detach().clone()
+                pos_embeds_cpy = (pos_embeds_cpy - pos_embeds_cpy.mean()) / pos_embeds.std()
+                return pos_embeds_cpy
+            elif self.prop_config.controller_input_type == ControllerInputType.INPUTS_EMBEDS:
+                #detached inputs_embeds, and standardize pos_embeds
+                inputs_embeds_cpy = 10*inputs_embeds.detach().clone()
+                inputs_embeds_cpy = (inputs_embeds_cpy - inputs_embeds_cpy.mean()) / inputs_embeds.std()
+                return inputs_embeds_cpy
+            elif self.prop_config.controller_input_type == ControllerInputType.INITIAL_STATE:
+                intial_state = (inputs_embeds + pos_embeds)
+                intial_state = 10*(intial_state - intial_state.mean()) / intial_state.std()
+                return intial_state.detach()
+            else:
+                raise Exception('Unimplemented controller input type')
+        else:
+            return hidden_states.detach()
 
     def freeze_backbone(self):
         freeze_network(self, ['controllers'])

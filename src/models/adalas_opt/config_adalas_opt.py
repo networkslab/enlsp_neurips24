@@ -3,7 +3,7 @@ from typing import List
 from transformers.models.opt import OPTConfig
 from enum import Enum
 
-from src.models.controllers.controller_types import ControllerType
+from src.models.controllers.controller_types import ControllerType, ControllerInputType
 
 
 class PropagationMode(Enum):
@@ -53,13 +53,20 @@ class DynamicPropagationConfig(PropagationConfig):
                  controller_input_size = None,
                  gumbel_temperature = 1.2,
                  controller_type = ControllerType.MLP_GUMBEL,
-                 with_fixed_input = False):
+                 controller_input_type = ControllerInputType.HIDDEN_STATES,
+                 with_fixed_input = False,
+                 layers = 1,
+                 divisor = 8):
         super().__init__(PropagationMode.DYNAMIC)
         self.gumbel_temperature = gumbel_temperature # tau parameter
         self.controller_input_size = controller_input_size
         self.controller_type = ControllerType(controller_type)
+        self.controller_input_type = ControllerInputType(controller_input_type) #Enum contructor accepts str or enum itself
         self.controller_layers = controller_layers
         self.with_fixed_input = with_fixed_input
+        self.layers = layers
+        self.divisor = divisor
+        
 
     def to_dict(self):
         return {
@@ -68,7 +75,10 @@ class DynamicPropagationConfig(PropagationConfig):
             'controller_input_size': self.controller_input_size,
             'gumbel_temperature': self.gumbel_temperature,
             'controller_type': self.controller_type.value,
-            'with_fixed_input': self.with_fixed_input
+            'controller_input_type': self.controller_input_type.value,
+            'with_fixed_input': self.with_fixed_input,
+            'layers': self.layers,
+            'divisor': self.divisor,
         }
 
 MAP_PROPAGATION_MODES = {

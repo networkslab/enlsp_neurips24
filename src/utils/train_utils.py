@@ -17,10 +17,24 @@ from trl.trainer import SFTTrainer, SFTConfig
 from transformers import DataCollatorForSeq2Seq, TrainingArguments, TrainerState, TrainerControl
 from dataclasses import dataclass
 import inspect
-from src.utils.training_args import DATASET_KEYS
 import copy
 import pandas as pd
 import zlib
+from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm
+
+DATASET_KEYS ={
+    "databricks/databricks-dolly-15k": {
+        "prompt": "instruction",
+        "context": "context",
+        "response": "response",
+        "prepare_fnc": prepare_databricks
+    },
+    "Samsung/samsum": {
+        "prompt": "dialogue",
+        "response": "summary",
+        "prepare_fnc": prepare_samsum
+    }
+}
     
 
 def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time"):
@@ -173,7 +187,7 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         return model_inputs
         
     tokenized_dataset_train = dataset['train'].map(tokenize_function, batched=True)
-    tokenized_dataset_val = dataset['test'].map(tokenize_function_eval, batched=True)
+    tokenized_dataset_val = dataset['validation'].map(tokenize_function_eval, batched=True)
     
     return tokenized_dataset_train, tokenized_dataset_val
   
@@ -315,6 +329,7 @@ class MetricsCallback(TensorBoardCallback):
     def on_log(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         phase = 'train' if self.model.training else 'eval' # move this to an enum
         percentage_skip_per_controller_per_seq = self.model.metrics[phase]['percentage_skip']
+        cross_layer_avg_perc_skip = []
         for layer_idx, skip_per_seq in enumerate(percentage_skip_per_controller_per_seq):
             if (skip_per_seq is not None) and len(skip_per_seq) > 0:
                 #check if process is distributed
@@ -324,10 +339,16 @@ class MetricsCallback(TensorBoardCallback):
                     skip_per_seq_tensor_gathered = torch.cat(output_tensors, dim=0)
                     avg_perc_skip = torch.mean(skip_per_seq_tensor_gathered).item()
                     if state.is_world_process_zero:
+                        cross_layer_avg_perc_skip.append(avg_perc_skip)
                         self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step) # only log on one process
                 else:
                     avg_perc_skip = torch.mean(skip_per_seq).item()
+                    cross_layer_avg_perc_skip.append(avg_perc_skip)
                     self.tb_writer.add_scalar(f'perc_skip_{phase}/{layer_idx}', avg_perc_skip, state.global_step)
+        if dist.is_available() and dist.is_initialized() and state.is_world_process_zero:
+            self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
+        elif not dist.is_available():
+            self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
         self.model.flush_metrics(phase)
 
 

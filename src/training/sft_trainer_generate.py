@@ -12,6 +12,8 @@ class SFTConfigGenerate(SFTConfig):
 
     eval_with_generate: Optional[bool] = False
     max_new_tokens: Optional[int] = 10
+    do_sample: Optional[bool] = False
+    temperature: Optional[float] = 1.0
 
 
 class SFTTrainerGenerate(SFTTrainer):
@@ -75,7 +77,7 @@ class SFTTrainerGenerate(SFTTrainer):
                 and generation_inputs["labels"].shape == generation_inputs["decoder_input_ids"].shape
         ):
             generation_inputs = {k: v for k, v in inputs.items() if k != "decoder_input_ids"}
-        generated_tokens = self.model.generate(**generation_inputs, max_new_tokens=self.args.max_new_tokens)
+        generated_tokens = self.model.generate(**generation_inputs, max_new_tokens=self.args.max_new_tokens, do_sample=self.args.do_sample, temperature=self.args.temperature)
 
         for k in range(generated_tokens.size(dim=0)):
             prompt_length = generation_inputs['input_ids'][k].size(dim=0)

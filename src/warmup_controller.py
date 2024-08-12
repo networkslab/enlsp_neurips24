@@ -7,15 +7,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from datasets import load_dataset, Split, load_from_disk, DatasetDict
-import argparse
+from datasets import load_from_disk
 from datetime import datetime
 
-import numpy as np
-import copy
 from time import sleep
-
-from transformers.trainer_utils import EvaluationStrategy
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
@@ -23,8 +18,8 @@ from src.utils.utils import get_abs_path, fix_the_seed, get_args
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
-from src.utils.training_args import SAVED_ARGS, TrainingArgs
-import dataclasses
+from src.utils.train_utils import DATASET_KEYS
+
 
 
 def main():
@@ -49,7 +44,6 @@ def main():
 
     #tokenizer
     sep_token = AddedToken("<SEP>", lstrip=False, rstrip=False)
-    # TODO update model to account for expanded vocab
     tokenizer = AutoTokenizer.from_pretrained(
         get_abs_path([model_name]) if args.load_model_from_disk else model_name,
         padding_side='left', use_fast=False,
@@ -61,26 +55,15 @@ def main():
     response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
 
     #Dataset
-    if args.load_dataset_from_disk:
-        tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
+    if args.tokenized_dataset_path is not None:
+        tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.tokenized_dataset_path]))
 
     else:
-        if dataset_name == 'Samsung/samsum':
-            dataset = load_dataset(dataset_name)
-            dataset['test'] = dataset['validation']
-            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-    
-        else:
-            full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-            #full_dataset = full_dataset.select(indices=range(200))
-            dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
-            tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
-            tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-    
+        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args, instruction_template_ids, response_template_ids)
+
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
-            
+        
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
@@ -107,7 +90,7 @@ def main():
 
     if args.fp16:
         adalas = adalas.to(torch.float16)
-    #adalas.freeze_backbone_and_head() #############################################################################################
+    
 
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
@@ -148,6 +131,8 @@ def main():
         include_inputs_for_metrics=True,
         eval_with_generate=True,
         max_new_tokens=args.max_new_tokens,
+        do_sample=args.generate_do_sample,
+        temperature=args.generate_temperature,
         deepspeed=deepspeed,
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,
