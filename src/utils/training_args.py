@@ -53,11 +53,32 @@ class TrainingArgs(DictOverwritable):
     save_dataset_dir: Optional[str] = None
     save_model_pretrain_dir: Optional[str] = None
     deepspeed: Optional[str] = None
+    with_lora: bool = True,
+    lora_rank: Optional[int] = 8
+    lora_alpha: Optional[int] = 8
+    lora_dropout: Optional[float] = 0.05
 
 
     
 
 SAVED_ARGS = {
+    "lora_local_test": TrainingArgs(
+        prop_config=StaticSkipPropagationConfig(skip_layers=[1, 3, 5, 7, 9]),
+        batch_size=4,
+        model='logs/opt-125m/databricks-dolly-15k_23-07_14-13-33/checkpoint-8000',
+        train_epochs=3,
+        eval_steps = 2000,
+        save_strategy = EvaluationStrategy.NO,
+        ddp=False,
+        fp16=False,
+        load_model_from_disk=True,
+        deepspeed='ds_config.json',
+        alpha = 10,
+        with_cost_aware_loss=False,
+        max_seq_length=256,
+        gradient_checkpointing=False,
+        with_lora=True
+    ),
     "warmup_probabilistic": TrainingArgs(
         prop_config=StochasticDropoutPropagationConfig(skip_probs=[0] + [0.5] * 10 + [0]),
         batch_size=4,

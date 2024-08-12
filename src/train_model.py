@@ -1,8 +1,9 @@
 from typing import List
 import os
 import transformers    
-from transformers import AddedToken
+from transformers import AddedToken, OPTForCausalLM
 from transformers import AutoTokenizer
+from peft import LoraConfig, TaskType, get_peft_model, LoftQConfig
 
 import torch
 
@@ -54,6 +55,19 @@ def main():
     instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False) ['input_ids'] + [tokenizer.sep_token_id]
     response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
 
+    #Model
+    if args.load_model_from_disk:
+        adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
+        adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
+        print(f"Loading model from {model_name}. Model config parameters will be ignored")
+    else:
+        propagation_config = args.prop_config
+        adalas_config = AdalasOPTConfig.from_pretrained(model_name)
+        adalas_config.propagation_config = propagation_config
+        adalas_config.skip_prompt = args.skip_prompt
+        adalas_config.sep_token_id = tokenizer.sep_token_id
+        adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
+
     #Dataset
     if args.load_dataset_from_disk:
         tokenized_dataset = load_from_disk(get_abs_path(['data', 'datasets', args.dataset]))
@@ -67,7 +81,7 @@ def main():
     
         else:
             full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-            #full_dataset = full_dataset.select(indices=range(200))
+            # full_dataset = full_dataset.select(indices=range(200))
             dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
             tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
             tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
@@ -84,18 +98,7 @@ def main():
     sleep(rank*20)
     print(f'rank {rank} starting model loading')
 
-    #Model
-    if args.load_model_from_disk:
-        adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
-        adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
-        print(f"Loading model from {model_name}. Model config parameters will be ignored")
-    else:
-        propagation_config = args.prop_config
-        adalas_config = AdalasOPTConfig.from_pretrained(model_name)
-        adalas_config.propagation_config = propagation_config
-        adalas_config.skip_prompt = args.skip_prompt
-        adalas_config.sep_token_id = tokenizer.sep_token_id
-        adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
+
         
     if args.fp16:
         adalas = adalas.to(torch.float16)
@@ -103,7 +106,12 @@ def main():
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
+    if args.with_lora:
+        lora_conf = LoraConfig(r=args.lora_rank, lora_alpha=args.lora_alpha,
+                               lora_dropout=args.lora_dropout, task_type=TaskType.CAUSAL_LM,
+                               target_modules=['k_proj', 'v_proj', 'q_proj', 'lm_head'])
 
+        adalas = get_peft_model(adalas, lora_conf)
     stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
     if args.ddp:
