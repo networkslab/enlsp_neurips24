@@ -17,10 +17,24 @@ from trl.trainer import SFTTrainer, SFTConfig
 from transformers import DataCollatorForSeq2Seq, TrainingArguments, TrainerState, TrainerControl
 from dataclasses import dataclass
 import inspect
-from src.utils.training_args import DATASET_KEYS
 import copy
 import pandas as pd
 import zlib
+from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm
+
+DATASET_KEYS ={
+    "databricks/databricks-dolly-15k": {
+        "prompt": "instruction",
+        "context": "context",
+        "response": "response",
+        "prepare_fnc": prepare_databricks
+    },
+    "Samsung/samsum": {
+        "prompt": "dialogue",
+        "response": "summary",
+        "prepare_fnc": prepare_samsum
+    }
+}
     
 
 def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time"):

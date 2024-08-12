@@ -8,7 +8,6 @@ from src.models.controllers.controller_types import ControllerInputType
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
     StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
 
-from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm
 
 class DictOverwritable(object):
     '''allows to overwrite some attributes of a class with a dict'''
@@ -22,6 +21,7 @@ class TrainingArgs(DictOverwritable):
     seed: int = 42
     learning_rate: float = 5e-5
     tokenized_dataset_path: str = None
+    load_dataset_from_disk: bool = False #deprecated for tokenized_dataset_path
     load_model_from_disk: bool = False
     dataset: str = 'databricks/databricks-dolly-15k'
     model: str = 'facebook/opt-125M'
@@ -48,7 +48,6 @@ class TrainingArgs(DictOverwritable):
     max_new_tokens: int = 200
     generate_do_sample: bool = False
     generate_temperature: float = 1.0
-    generate_top_k: int = 0
     fp16: bool = True
     with_cost_aware_loss: bool = False
     alpha: float = 0.0,
@@ -775,6 +774,8 @@ SAVED_ARGS = {
     ),
     "SM_eval_ULS_1.0x_1.3_args": TrainingArgs(
         dataset='Samsung/samsum',
+        save_dataset_dir='samsum',
+        tokenized_dataset_path='samsum',
         prop_config=PropagationConfig(),
         batch_size=4,
         load_model_from_disk=True,
@@ -894,16 +895,4 @@ SAVED_ARGS = {
     ),
 }
 
-DATASET_KEYS ={
-    "databricks/databricks-dolly-15k": {
-        "prompt": "instruction",
-        "context": "context",
-        "response": "response",
-        "prepare_fnc": prepare_databricks
-    },
-    "Samsung/samsum": {
-        "prompt": "dialogue",
-        "response": "summary",
-        "prepare_fnc": prepare_samsum
-    }
-}
+

@@ -19,7 +19,7 @@ from src.utils.utils import get_abs_path, fix_the_seed, get_args
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTConfigGenerate, SFTTrainerGenerate
 import src.utils.train_utils as train_utils
-from src.utils.training_args import DATASET_KEYS
+from src.utils.train_utils import DATASET_KEYS
 
 
 def main():
@@ -55,7 +55,7 @@ def main():
 
     #Dataset
     if args.tokenized_dataset_path is not None:
-        tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.dataset]))
+        tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.tokenized_dataset_path]))
 
     else:
         tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args, instruction_template_ids, response_template_ids)
@@ -134,6 +134,7 @@ def main():
         max_new_tokens=args.max_new_tokens,
         do_sample=args.generate_do_sample,
         temperature=args.generate_temperature,
+        
         deepspeed=deepspeed,
         local_rank=rank if args.ddp else None,
         ddp_find_unused_parameters=False,
