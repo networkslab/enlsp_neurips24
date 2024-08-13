@@ -63,12 +63,12 @@ def main():
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
         
-  
+
     #DataCollator
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
     #sleep to stagger the model loading, in order to avoid high peak RAM use
-    sleep(rank*20)
+    sleep(rank*5)
     print(f'rank {rank} starting model loading')
 
     #Model

@@ -22,5 +22,10 @@ def prepare_samsum(tokenizer, args, instruction_template_ids, response_template_
 def prepare_reddit():
     pass
 
-def prepare_cnndm():
-    pass
+def prepare_cnndm(tokenizer, args, instruction_template_ids, response_template_ids):
+    dataset_name = "abisee/cnn_dailymail"
+    dataset_version = '3.0.0'
+    dataset = load_dataset(dataset_name,dataset_version)
+    tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
+    tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
+    return tokenized_dataset
