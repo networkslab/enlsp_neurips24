@@ -60,9 +60,25 @@ class TrainingArgs(DictOverwritable):
     lora_dropout: Optional[float] = 0.05
 
 
-    
-
 SAVED_ARGS = {
+     "hidden_state_opt125_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        model='facebook/opt-125m',
+        dataset="abisee/cnn_dailymail",
+        tokenized_dataset_path="mini_cnn_dailymail",
+        save_model_pretrain_dir="opt-125m",
+        train_epochs=3,
+        eval_steps = 1000,
+        save_strategy = "steps",
+        save_steps = 1000,
+        fp16=False,
+        gradient_checkpointing=False,
+        ddp=False,
+        max_seq_length=512,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=1,
+    ),
     "cnndm_full_prop_1.3_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=2,
