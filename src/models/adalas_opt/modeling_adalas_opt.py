@@ -156,7 +156,7 @@ class AdalasOPTDecoder(OPTDecoder):
         for idx, decoder_layer in enumerate(self.layers):
             controller = self.controllers[idx]
             controller_input = self.prepare_controller_input(hidden_states, pos_embeds, inputs_embeds)
-            controller_out = controller(controller_input) # [:, :, 0] no  skip, [:, :, 1] skip
+            controller_out = controller(controller_input) # [execute_bool, skip_bool]
             gumbel_skip = controller_out[:, :, 1]
             gumbel_keep = controller_out[:, :, 0]
             if output_hidden_states:
@@ -201,9 +201,9 @@ class AdalasOPTDecoder(OPTDecoder):
                 input_contains_prompt_and_label = torch.any(label_mask[:, :]).item() #will return false during the first forward pass of generation, and true during training
             else:
                 label_mask = torch.ones_like(input_ids) # during autoregressive gen, all tokens are labels
-                input_contains_prompt_and_label = False #if there is no prompt then there is no prampt and label
-            update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things diff 1 where we update, 0 where we skip. Should be complement of next
-            skip_mask = label_mask * gumbel_skip
+                input_contains_prompt_and_label = False # if there is no prompt then there is no prompt and label
+            update_mask = 1 - (label_mask * (1 - gumbel_keep)) # De Morgan's to keep things differential. 1 where we update, 0 where we skip.
+            skip_mask = label_mask * gumbel_skip # Should be complement of previous line
             hidden_states = layer_outputs[0] * update_mask[:, :, None] + hidden_states * skip_mask[:, :, None]
             train_eval_phase = 'train' if self.training else 'eval'
             generation_lengths = torch.sum(label_mask, dim = -1)
@@ -267,7 +267,11 @@ class AdalasOPTDecoder(OPTDecoder):
             controller_input_dim = self.hidden_size
         else:
             controller_input_dim = self.prop_config.controller_input_size
-
+        if self.prop_config.propagation_mode == PropagationMode.STATIC_EE:
+            self.controllers = nn.ModuleList(
+                [StaticController(i > self.prop_config.early_exit_layer) for i in range(len(self.layers))]
+            )
+            return
         if self.prop_config.controller_type == ControllerType.MLP_GUMBEL:
             self.controllers = nn.ModuleList([])
             for layer in range(len(self.layers)):

@@ -5,6 +5,7 @@ from src.utils import train_utils
 def prepare_databricks(tokenizer, args, instruction_template_ids, response_template_ids):
     dataset_name = "databricks/databricks-dolly-15k"
     full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
+    # full_dataset = full_dataset.select(indices=range(500))
     dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
     dataset['validation'] = dataset['test']
     del dataset['test']
