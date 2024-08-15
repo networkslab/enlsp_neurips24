@@ -6,7 +6,8 @@ from transformers.trainer_utils import EvaluationStrategy
 from src.models.controllers.controller_types import ControllerInputType
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
-    StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
+    StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig, \
+    StaticEEPropagationConfig
 
 
 class DictOverwritable(object):
@@ -63,12 +64,13 @@ class TrainingArgs(DictOverwritable):
     
 
 SAVED_ARGS = {
-    "lora_local_test": TrainingArgs(
-        prop_config=StaticSkipPropagationConfig(skip_layers=[1, 3, 5, 7, 9]),
+    "ee_test": TrainingArgs(
+        prop_config=StaticEEPropagationConfig(early_exit_layer=9),
         batch_size=4,
         model='logs/opt-125m/databricks-dolly-15k_23-07_14-13-33/checkpoint-8000',
         train_epochs=3,
         eval_steps = 2000,
+        save_dataset_dir="dolly_opt125",
         save_strategy = EvaluationStrategy.NO,
         ddp=False,
         fp16=False,
@@ -77,8 +79,9 @@ SAVED_ARGS = {
         alpha = 10,
         with_cost_aware_loss=False,
         max_seq_length=256,
+        tokenized_dataset_path='dolly_opt125',
         gradient_checkpointing=False,
-        with_lora=True
+        with_lora=False
     ),
     "warmup_probabilistic": TrainingArgs(
         prop_config=StochasticDropoutPropagationConfig(skip_probs=[0] + [0.5] * 10 + [0]),
