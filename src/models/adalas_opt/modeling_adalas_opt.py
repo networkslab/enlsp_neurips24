@@ -154,6 +154,8 @@ class AdalasOPTDecoder(OPTDecoder):
                     )
         layer_costs = []
         if self.prop_config.propagation_mode == PropagationMode.RANDOM_FOR_BUDGET:
+            # TODO: This will generate a new route for every forward call, this is problematic for generation where forward is called
+            # multiple times for a single generation. One fix is to select a random route in the trainer code
             random_route = self._set_random_route() # use the returned value for logging if desired.
             # print(f"Executing route {random_route}")
         for idx, decoder_layer in enumerate(self.layers):
