@@ -10,14 +10,13 @@ def prepare_databricks(tokenizer, args):
     
     instruction_template_ids = tokenizer(instruction_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
     response_template_ids = tokenizer(response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-    context_template_ids = tokenizer(context_template,add_special_tokens=False)['input_ids']
     
     full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
     # full_dataset = full_dataset.select(indices=range(500))
     dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
     dataset['validation'] = dataset['test']
     del dataset['test']
-    tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template_ids)
+    tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template)
     tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
     return tokenized_dataset
 
@@ -59,14 +58,13 @@ def prepare_alpaca(tokenizer, args):
     
     instruction_template_ids = tokenizer(instruction_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
     response_template_ids = tokenizer(response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-    context_template_ids = tokenizer(context_template,add_special_tokens=False)['input_ids']
     
     full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
     dataset = full_dataset.train_test_split(test_size=0.3,seed=args.seed)
     dataset_val_test = dataset['test'].train_test_split(test_size=0.5,seed=args.seed)
     dataset['validation'] = dataset_val_test['train']
     dataset['test'] = dataset_val_test['test']
-    tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template_ids)
+    tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template)
     tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
     return tokenized_dataset
     
