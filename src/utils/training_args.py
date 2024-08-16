@@ -40,10 +40,11 @@ class TrainingArgs(DictOverwritable):
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
     load_best_model_at_end: bool = False,
-    save_total_limit: int = 3,
+    save_total_limit: int = 20,
     multiprocess: bool = True
-    instruction_template: str = "### User:"
-    response_template: str = "\n### Assistant:"
+    instruction_template: str = "### User:" #deprecated
+    response_template: str = "\n### Assistant:" #deprecated
+    context_template: Optional[str] = None
     ddp: bool = True
     skip_prompt: bool = False
     max_new_tokens: int = 200
@@ -64,6 +65,23 @@ class TrainingArgs(DictOverwritable):
     
 
 SAVED_ARGS = {
+    "alpaca_full_prop_125m_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="alpaca",
+        model='facebook/opt-125M',
+        train_epochs=3,
+        save_strategy="steps",
+        save_steps=1000,
+        eval_steps=1000,
+        max_seq_length=512,
+        prompt_seq_length=0.2,
+        ddp=True,
+        deepspeed='ds_config.json',
+        gradient_accumulation_steps=1,
+        fp16 = False
+    ),
     "cnndm_full_prop_1.3_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=2,
@@ -71,8 +89,6 @@ SAVED_ARGS = {
         tokenized_dataset_path="cnn_dailymail",
         save_dataset_dir="cnn_dailymail",
         model='facebook/opt-iml-1.3b',
-        instruction_template= "### Article:",
-        response_template= "\n### Summary:",
         train_epochs=2,
         save_strategy="steps",
         save_steps=1994,

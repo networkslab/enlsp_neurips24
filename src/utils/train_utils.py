@@ -20,7 +20,7 @@ import inspect
 import copy
 import pandas as pd
 import zlib
-from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm
+from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm, prepare_alpaca
 
 DATASET_KEYS ={
     "databricks/databricks-dolly-15k": {
@@ -38,6 +38,12 @@ DATASET_KEYS ={
         "prompt": "article",
         "response": "highlights",
         "prepare_fnc": prepare_cnndm
+    },
+    "tatsu-lab/alpaca": {
+        "prompt": "instruction",
+        "context": "input",
+        "response": "output",
+        "prepare_fnc": prepare_alpaca
     }
 }
     
@@ -114,7 +120,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
     return {k: round(v,4) for k,v in result.items()}
 
 
-def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids):
+def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template_ids=None):
     
     #Tokenize
     def tokenize_function(examples):
@@ -123,7 +129,7 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         if 'context' in DATASET_KEYS[dataset_name]:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            prompts = list(map(lambda x,y: x + context_template_ids + y, prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         
@@ -158,7 +164,7 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         if 'context' in DATASET_KEYS[dataset_name]:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            prompts = list(map(lambda x,y: x + context_template_ids + y, prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         
