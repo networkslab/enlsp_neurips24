@@ -6,7 +6,8 @@ from transformers.trainer_utils import EvaluationStrategy
 from src.models.controllers.controller_types import ControllerInputType
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
-    StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig
+    StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig, \
+    StaticEEPropagationConfig
 
 
 class DictOverwritable(object):

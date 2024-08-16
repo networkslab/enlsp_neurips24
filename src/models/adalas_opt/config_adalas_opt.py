@@ -11,6 +11,7 @@ class PropagationMode(Enum):
     STATIC_SKIP = 'static_skip'
     STOCHASTIC_DROPOUT = 'stochastic_dropout'
     DYNAMIC = 'dynamic'
+    STATIC_EE = 'static_ee'
 
 
 class PropagationConfig:
@@ -37,6 +38,18 @@ class StaticSkipPropagationConfig(PropagationConfig):
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value, 'skip_layers': self.skip_layers}
+
+class StaticEEPropagationConfig(PropagationConfig):
+    def __init__(self, early_exit_layer: int, freeze_subsequent = True):
+        super().__init__(PropagationMode.STATIC_EE)
+        self.early_exit_layer = early_exit_layer
+        self.freeze_subsequent = freeze_subsequent
+        self.controller_type = ControllerType.STATIC # use a bunch of static controllers based on where the exit layer is.
+
+    def to_dict(self):
+        return {'propagation_mode': self.propagation_mode.value,
+                'ee_layer': self.early_exit_layer,
+                'freeze_subsequent': self.freeze_subsequent}
 
 class StochasticDropoutPropagationConfig(PropagationConfig):
     def __init__(self, skip_probs: List[float]):
@@ -85,7 +98,8 @@ MAP_PROPAGATION_MODES = {
     'full': PropagationConfig,
     'static_skip': StaticSkipPropagationConfig,
     'stochastic_dropout': StochasticDropoutPropagationConfig,
-    'dynamic': DynamicPropagationConfig
+    'dynamic': DynamicPropagationConfig,
+    'static_ee': StaticEEPropagationConfig
 }
 
 class AdalasOPTConfig(OPTConfig):
