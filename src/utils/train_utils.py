@@ -33,6 +33,11 @@ DATASET_KEYS ={
         "prompt": "dialogue",
         "response": "summary",
         "prepare_fnc": prepare_samsum
+    },
+    "abisee/cnn_dailymail": {
+        "prompt": "article",
+        "response": "highlights",
+        "prepare_fnc": prepare_cnndm
     }
 }
     
