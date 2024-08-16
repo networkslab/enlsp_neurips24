@@ -126,10 +126,10 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
     def tokenize_function(examples):
         prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
         #check if 'context' is in the datassetKeys 
-        if 'context' in DATASET_KEYS[dataset_name]:
+        if 'context' in DATASET_KEYS[dataset_name] and examples[DATASET_KEYS[dataset_name]['context']] is not None:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + context_template + y, prompts, contexts))
+            prompts = list(map(lambda p,c: p + (context_template + c if len(c.strip()) > 0 else ''), prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         
@@ -161,10 +161,10 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         #### SAME AS tokenize_function ####
         prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
         #check if 'context' is in the datassetKeys 
-        if 'context' in DATASET_KEYS[dataset_name]:
+        if 'context' in DATASET_KEYS[dataset_name] and examples[DATASET_KEYS[dataset_name]['context']] is not None:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + context_template + y, prompts, contexts))
+            prompts = list(map(lambda p,c: p + (context_template + c if len(c.strip()) > 0 else ''), prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         
