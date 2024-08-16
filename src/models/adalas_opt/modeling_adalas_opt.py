@@ -153,6 +153,9 @@ class AdalasOPTDecoder(OPTDecoder):
                         f" {head_mask.size()[0]}."
                     )
         layer_costs = []
+        if self.prop_config.propagation_mode == PropagationMode.RANDOM_FOR_BUDGET:
+            random_route = self._set_random_route() # use the returned value for logging if desired.
+            # print(f"Executing route {random_route}")
         for idx, decoder_layer in enumerate(self.layers):
             controller = self.controllers[idx]
             controller_input = self.prepare_controller_input(hidden_states, pos_embeds, inputs_embeds)
@@ -272,6 +275,11 @@ class AdalasOPTDecoder(OPTDecoder):
                 [StaticController(i > self.prop_config.early_exit_layer) for i in range(len(self.layers))]
             )
             return
+        if self.prop_config.propagation_mode == PropagationMode.RANDOM_FOR_BUDGET:
+            self.controllers = nn.ModuleList(
+                [StaticController(skip=False) for _ in range(len(self.layers))]
+            )
+            return
         if self.prop_config.controller_type == ControllerType.MLP_GUMBEL:
             self.controllers = nn.ModuleList([])
             for layer in range(len(self.layers)):
@@ -296,6 +304,7 @@ class AdalasOPTDecoder(OPTDecoder):
                 self.controllers.append(ProbabilisticController(skip_prob=self.prop_config.skip_probs[layer]))
         else:
             raise Exception('Unimplemented controller type')
+        
 
     def prepare_controller_input(self, hidden_states, pos_embeds, inputs_embeds):
         if hasattr(self.prop_config,'controller_input_type') and self.prop_config.controller_input_type is not None:
@@ -329,6 +338,13 @@ class AdalasOPTDecoder(OPTDecoder):
             self._init_metrics()
         else:
             self.metrics[phase] = self._init_metric_dict_for_phase()
+
+    def _set_random_route(self):
+        total_num_layers = len(self.layers)
+        random_route_for_budget = self.prop_config.generate_random_route(total_num_layers) # 1 is a select, 0 is a skip
+        for controller_idx, controller in enumerate(self.controllers):
+            controller.skip = np.logical_not(random_route_for_budget[controller_idx])
+        return random_route_for_budget
 
 class AdalasOPTModel(OPTModel):
     def __init__(self, config: AdalasOPTConfig):

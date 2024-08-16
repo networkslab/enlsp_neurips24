@@ -7,7 +7,7 @@ from src.models.controllers.controller_types import ControllerInputType
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, StaticSkipPropagationConfig, \
     StochasticDropoutPropagationConfig, PropagationConfig, PropagationMode, DynamicPropagationConfig, \
-    StaticEEPropagationConfig
+    StaticEEPropagationConfig, RandomForBudgetPropagationConfig
 
 
 class DictOverwritable(object):
@@ -64,12 +64,12 @@ class TrainingArgs(DictOverwritable):
     
 
 SAVED_ARGS = {
-    "ee_test": TrainingArgs(
-        prop_config=StaticEEPropagationConfig(early_exit_layer=9),
+    "random_for_budget_test": TrainingArgs(
+        prop_config=RandomForBudgetPropagationConfig(budget=9),
         batch_size=4,
         model='logs/opt-125m/databricks-dolly-15k_23-07_14-13-33/checkpoint-8000',
         train_epochs=3,
-        eval_steps = 2000,
+        eval_steps = 30,
         save_dataset_dir="dolly_opt125",
         save_strategy = EvaluationStrategy.NO,
         ddp=False,
