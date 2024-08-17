@@ -2,7 +2,7 @@
 This file runs inference on the trained model to extract hidden states for each token in each sequence in the validation set.
 '''
 import os
-
+from time import sleep
 import datasets
 import torch
 import torch.multiprocessing as mp
@@ -16,8 +16,7 @@ from transformers import AddedToken
 from transformers import AutoTokenizer
 from datetime import datetime
 
-now = datetime.now() # current date and time
-folderName = "/"+now.strftime("%m-%d-%Y_%H-%M")
+
 
 
 #set os parameters
@@ -38,7 +37,9 @@ def get_hidden_states(dataset,checkpoint,args,rank):
         padding_side='left', use_fast=False,
         sep_token=sep_token
     )
-    
+
+    sleep(rank*10)
+    print(f"rank {rank} starting model loading")
     #load model and tokenizer
     adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([checkpoint]))
     #set config parameters
@@ -47,7 +48,7 @@ def get_hidden_states(dataset,checkpoint,args,rank):
     adalas_config.alpha = args.alpha
     adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([checkpoint]),config=adalas_config).to(device)
     
-    
+    print("model loaded")
     
     batch_size = args.batch_size
     
@@ -59,6 +60,8 @@ def get_hidden_states(dataset,checkpoint,args,rank):
     
     #set model to eval mode
     adalas.eval()
+
+    print("model in eval")
     
     num_layers = NUM_LAYERS
     num_tokens = 0
@@ -81,6 +84,8 @@ def get_hidden_states(dataset,checkpoint,args,rank):
     
     #we always need labels tensor
     labels_np = np.array([],dtype=np.int32)
+
+    print("starting loop")
     
     #iterate through dataset
     torch_hidden_index = 0 #index to keep track of where to put hidden states in hidden_state_tensor
@@ -143,7 +148,7 @@ def get_hidden_states(dataset,checkpoint,args,rank):
         
         
     
-def run_inference(rank,world_size,dataset_dir,checkpoint,args):
+def run_inference(rank,world_size,dataset_dir,checkpoint,folderName,args):
     print(f"Running inference on rank {rank}.")
     #get validation data
     #load dataset
@@ -181,15 +186,19 @@ def main():
     #get command line arguments using argparse
 
     
+   
+    
+    now = datetime.now() # current date and time
+    folderName = "/"+now.strftime("%m-%d-%Y_%H-%M")
+
     #make output directory for hidden state files
     os.makedirs(get_abs_path([model_path]) + folderName,exist_ok=True)
-    
     
     #torch multiprocessing start method
     # manager = mp.Manager()
     # result_queue = manager.Queue()
-    mp.spawn(run_inference, args=(world_size,dataset_path,model_path,args), nprocs=world_size, join=True)
-    
+    mp.spawn(run_inference, args=(world_size,dataset_path,model_path,folderName,args), nprocs=world_size, join=True)
+    #run_inference(0,world_size,dataset_path,model_path,args)
     
     #post-join code
     print("Inference completed for all ranks. Aggregating results...")
