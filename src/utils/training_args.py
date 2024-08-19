@@ -65,21 +65,46 @@ class TrainingArgs(DictOverwritable):
     
 
 SAVED_ARGS = {
-    "alpaca_full_prop_125m_args": TrainingArgs(
+    "alpaca_tiny_prop_350_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=4,
         dataset="tatsu-lab/alpaca",
-        save_dataset_dir="alpaca",
-        model='facebook/opt-125M',
+        save_dataset_dir="opt350_alpaca_tiny",
+        model='facebook/opt-350M',
         train_epochs=3,
         save_strategy="steps",
-        save_steps=1000,
-        eval_steps=1000,
+        gradient_accumulation_steps=5,
+        save_steps=20,
+        eval_steps=20,
+        load_best_model_at_end=True,
+        save_total_limit=2,
         max_seq_length=512,
-        prompt_seq_length=0.2,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
         ddp=True,
+        tokenized_dataset_path="opt350_alpaca_tiny",
         deepspeed='ds_config.json',
-        gradient_accumulation_steps=1,
+        fp16 = False
+    ),
+    "alpaca_full_prop_350_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="opt350_alpaca",
+        model='facebook/opt-350M',
+        train_epochs=3,
+        save_strategy="steps",
+        gradient_accumulation_steps=5,
+        save_steps=910,
+        eval_steps=910,
+        load_best_model_at_end=True,
+        save_total_limit=3,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        ddp=True,
+        tokenized_dataset_path="opt350_alpaca",
+        deepspeed='ds_config.json',
         fp16 = False
     ),
     "cnndm_full_prop_1.3_args": TrainingArgs(

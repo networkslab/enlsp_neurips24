@@ -60,7 +60,9 @@ def prepare_alpaca(tokenizer, args):
     response_template_ids = tokenizer(response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
     
     full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
+    # full_dataset = full_dataset.select(indices=range(300))
     dataset = full_dataset.train_test_split(test_size=0.3,seed=args.seed)
+    
     dataset_val_test = dataset['test'].train_test_split(test_size=0.5,seed=args.seed)
     dataset['validation'] = dataset_val_test['train']
     dataset['test'] = dataset_val_test['test']

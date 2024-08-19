@@ -105,7 +105,6 @@ def main():
     current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
-
     if adalas_config.propagation_config.propagation_mode == PropagationMode.STATIC_EE and adalas_config.propagation_config.freeze_subsequent:
         freeze_top_decoder_layers(adalas, ['lm_head'],
                                   last_unfrozen_layer=adalas_config.propagation_config.early_exit_layer, verbose=True)
@@ -116,7 +115,8 @@ def main():
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
         packing=False, 
-        output_dir=get_abs_path(['results', output_dir_name]),
+        # output_dir=get_abs_path(['results', output_dir_name]),
+        output_dir=f'/media/joud/Elements/{output_dir_name}',
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps= args.gradient_accumulation_steps,

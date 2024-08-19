@@ -81,7 +81,10 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
     result["rougeL"] = r["rougeL"]
     
     #log the average error in length of the generated text as a fraction of the length of the label
-    pred_percentage_length = [(float)((len(predictions[i])-len(labels[i])))/len(labels[i]) for i in range(len(predictions))]# TODO remove empty labels
+    pred_percentage_length  = []
+    for i in range(len(predictions)):
+        if len(labels[i]) > 0:
+            pred_percentage_length.append((float)((len(predictions[i])-len(labels[i])))/len(labels[i]))
     result["pred_percentage_length"] = np.mean(pred_percentage_length)
     
     #log examples for debugging
