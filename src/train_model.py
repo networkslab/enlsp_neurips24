@@ -71,12 +71,12 @@ def main():
     if args.load_model_from_disk:
 
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
-        # propagation_config = args.prop_config # uncomment to override local config.
-        # adalas_config.propagation_config = propagation_config
-        # adalas_config.skip_prompt = args.skip_prompt
-        # adalas_config.sep_token_id = tokenizer.sep_token_id
+        propagation_config = args.prop_config # uncomment to override local config.
+        adalas_config.propagation_config = propagation_config
+        adalas_config.skip_prompt = args.skip_prompt
+        adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
-        print(f"Loading model from {model_name}. Model config parameters will be ignored")
+        print(f"Loading model from {model_name}. Model config will be overwritten")
     else:
         propagation_config = args.prop_config
         adalas_config = AdalasOPTConfig.from_pretrained(model_name)
@@ -95,8 +95,8 @@ def main():
         lora_conf = LoraConfig(r=args.lora_rank, lora_alpha=args.lora_alpha,
                                lora_dropout=args.lora_dropout, task_type=TaskType.CAUSAL_LM,
                                target_modules=['k_proj', 'v_proj', 'q_proj', 'lm_head'])
-
         adalas = get_peft_model(adalas, lora_conf)
+    adalas.freeze_backbone(freeze_head=False)
     stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
     if args.ddp:
