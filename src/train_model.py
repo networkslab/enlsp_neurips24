@@ -96,7 +96,7 @@ def main():
                                lora_dropout=args.lora_dropout, task_type=TaskType.CAUSAL_LM,
                                target_modules=['k_proj', 'v_proj', 'q_proj', 'lm_head'])
         adalas = get_peft_model(adalas, lora_conf)
-    adalas.freeze_backbone(freeze_head=False)
+
     stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
     if args.ddp:

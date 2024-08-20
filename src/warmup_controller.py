@@ -86,8 +86,8 @@ def main():
 
     if args.fp16:
         adalas = adalas.to(torch.float16)
-    
 
+    adalas.freeze_backbone(freeze_head=False)
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
@@ -151,8 +151,8 @@ def main():
         callbacks=[metrics_callback],
     )
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
-    trainer.evaluate()
-    # trainer.train() # make sure there are trainable components, otherwise the backprop will fail.
+    # trainer.evaluate()
+    trainer.train() # make sure there are trainable components, otherwise the backprop will fail.
 
 if __name__ == "__main__":
     main()
