@@ -75,12 +75,12 @@ def main():
     if args.load_model_from_disk:
 
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
-        # propagation_config = args.prop_config # uncomment to override local config.
-        # adalas_config.propagation_config = propagation_config
-        # adalas_config.skip_prompt = args.skip_prompt
-        # adalas_config.sep_token_id = tokenizer.sep_token_id
+        propagation_config = args.prop_config # uncomment to override local config.
+        adalas_config.propagation_config = propagation_config
+        adalas_config.skip_prompt = args.skip_prompt
+        adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
-        print(f"Loading model from {model_name}. Model config parameters will be ignored")
+        print(f"Loading model from {model_name}. Overwriting with args")
     else:
         propagation_config = args.prop_config
         adalas_config = AdalasOPTConfig.from_pretrained(model_name)
