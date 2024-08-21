@@ -84,9 +84,11 @@ def main():
         adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
 
+    
     if args.fp16:
         adalas = adalas.to(torch.float16)
 
+    
     adalas.freeze_backbone(freeze_head=False)
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
