@@ -2,6 +2,7 @@ import json
 from typing import List
 from transformers.models.opt import OPTConfig
 from enum import Enum
+import numpy as np
 
 from src.models.controllers.controller_types import ControllerType, ControllerInputType
 
@@ -11,6 +12,8 @@ class PropagationMode(Enum):
     STATIC_SKIP = 'static_skip'
     STOCHASTIC_DROPOUT = 'stochastic_dropout'
     DYNAMIC = 'dynamic'
+    STATIC_EE = 'static_ee'
+    RANDOM_FOR_BUDGET = 'random_for_budget'
 
 
 class PropagationConfig:
@@ -37,6 +40,36 @@ class StaticSkipPropagationConfig(PropagationConfig):
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value, 'skip_layers': self.skip_layers}
+
+class StaticEEPropagationConfig(PropagationConfig):
+    def __init__(self, early_exit_layer: int, freeze_subsequent = True):
+        super().__init__(PropagationMode.STATIC_EE)
+        self.early_exit_layer = early_exit_layer
+        self.freeze_subsequent = freeze_subsequent
+        self.controller_type = ControllerType.STATIC # use a bunch of static controllers based on where the exit layer is.
+
+    def to_dict(self):
+        return {'propagation_mode': self.propagation_mode.value,
+                'ee_layer': self.early_exit_layer,
+                'freeze_subsequent': self.freeze_subsequent}
+    
+class RandomForBudgetPropagationConfig(PropagationConfig):
+    def __init__(self, budget: int):
+        super().__init__(PropagationMode.RANDOM_FOR_BUDGET)
+        self.budget = budget
+        self.controller_type = ControllerType.STATIC # use a bunch of static controllers based on the selected layers.
+
+    def generate_random_route(self, total_num_layers: int) -> list[bool]:
+        '''generates a random route for the given budget. 1 is a selected layer, 0 is a skipped layer.'''
+        assert self.budget <= total_num_layers, 'Budget should be greater or equal to total number of layers'
+        executed_layers = np.ones(self.budget)
+        skipped_layers = np.zeros(total_num_layers - self.budget)
+        concat_layers = np.concatenate([executed_layers, skipped_layers])
+        return np.random.permutation(concat_layers)
+
+    def to_dict(self):
+        return {'propagation_mode': self.propagation_mode.value,
+                'budget': self.budget}
 
 class StochasticDropoutPropagationConfig(PropagationConfig):
     def __init__(self, skip_probs: List[float]):
@@ -85,7 +118,9 @@ MAP_PROPAGATION_MODES = {
     'full': PropagationConfig,
     'static_skip': StaticSkipPropagationConfig,
     'stochastic_dropout': StochasticDropoutPropagationConfig,
-    'dynamic': DynamicPropagationConfig
+    'dynamic': DynamicPropagationConfig,
+    'static_ee': StaticEEPropagationConfig,
+    'random_for_budget': RandomForBudgetPropagationConfig
 }
 
 class AdalasOPTConfig(OPTConfig):
