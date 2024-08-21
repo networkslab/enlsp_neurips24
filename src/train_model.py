@@ -13,7 +13,7 @@ from time import sleep
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path, fix_the_seed, get_args
+from src.utils.utils import get_abs_path, fix_the_seed, get_args, freeze_top_decoder_layers
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
@@ -73,9 +73,14 @@ def main():
 
     #Model
     if args.load_model_from_disk:
+
         adalas_config = AdalasOPTConfig.from_pretrained(get_abs_path([model_name]))
+        propagation_config = args.prop_config # uncomment to override local config.
+        adalas_config.propagation_config = propagation_config
+        adalas_config.skip_prompt = args.skip_prompt
+        adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
-        print(f"Loading model from {model_name}. Model config parameters will be ignored")
+        print(f"Loading model from {model_name}. Overwriting with args")
     else:
         propagation_config = args.prop_config
         adalas_config = AdalasOPTConfig.from_pretrained(model_name)
@@ -104,10 +109,13 @@ def main():
     current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
+
+    if adalas_config.propagation_config.propagation_mode == PropagationMode.STATIC_EE and adalas_config.propagation_config.freeze_subsequent:
+        freeze_top_decoder_layers(adalas, ['lm_head'],
+                                  last_unfrozen_layer=adalas_config.propagation_config.early_exit_layer, verbose=True)
     #Metrics
     def compute_metrics(eval_pred):
         return train_utils.compute_metrics(eval_pred, tokenizer)
-   
     #Training
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
