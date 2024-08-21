@@ -104,8 +104,8 @@ def main():
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
     #Metrics
-    def compute_metrics(eval_pred):
-        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True,fname=current_time_str)
+    def compute_metrics(eval_pred, pickle_file_params=None):
+        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True,fname=current_time_str, pickle_file_params=pickle_file_params)
 
     #Training
     sft_config = SFTConfigGenerate(
@@ -142,18 +142,37 @@ def main():
     summary_writer = SummaryWriter(sft_config.logging_dir + '/custom_scalars')
     summary_writer.add_custom_scalars(train_utils.get_tensorboard_training_layout(adalas.model.decoder))
     metrics_callback = train_utils.MetricsCallback(summary_writer, adalas.model.decoder)
-    trainer = SFTTrainerGenerate(
-        model=adalas,
-        args=sft_config,
-        train_dataset=tokenized_dataset['train'],
-        eval_dataset=tokenized_dataset['validation'],
-        tokenizer=tokenizer,
-        data_collator=collator,
-        compute_metrics=compute_metrics,
-        callbacks=[metrics_callback],
-    )
-    trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
-    trainer.evaluate()
+    
+    if args.testing_mode:
+        num_shards = 10
+        date_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        for i in range(num_shards):
+            test_shard = tokenized_dataset['test'].shard(num_shards, i)
+            trainer = SFTTrainerGenerate(
+                model=adalas,
+                args=sft_config,
+                train_dataset=tokenized_dataset['train'],
+                eval_dataset=test_shard,
+                tokenizer=tokenizer,
+                data_collator=collator,
+                compute_metrics=(lambda eval_pred: compute_metrics(eval_pred, pickle_file_params=(date_time, i))),
+                callbacks=[metrics_callback],
+            )
+            trainer.neftune_noise_alpha = None
+            trainer.evaluate()
+    else:
+        trainer = SFTTrainerGenerate(
+            model=adalas,
+            args=sft_config,
+            train_dataset=tokenized_dataset['train'],
+            eval_dataset=tokenized_dataset['validation'],
+            tokenizer=tokenizer,
+            data_collator=collator,
+            compute_metrics=compute_metrics,
+            callbacks=[metrics_callback],
+        )
+        trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
+        trainer.evaluate()
 
 
 if __name__ == "__main__":

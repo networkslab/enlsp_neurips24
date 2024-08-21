@@ -21,6 +21,8 @@ import copy
 import pandas as pd
 import zlib
 from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm, prepare_alpaca
+import pickle
+import os
 
 DATASET_KEYS ={
     "databricks/databricks-dolly-15k": {
@@ -48,7 +50,7 @@ DATASET_KEYS ={
 }
     
 
-def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time"):
+def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time", pickle_file_params=None):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -86,6 +88,38 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
         if len(labels[i]) > 0:
             pred_percentage_length.append((float)((len(predictions[i])-len(labels[i])))/len(labels[i]))
     result["pred_percentage_length"] = np.mean(pred_percentage_length)
+
+    # Calculate the individual rouge scores if save_rouge is True or pickle_file_params is provided
+    if save_rouge or pickle_file_params is not None:
+        r_ind = rouge_score.compute(predictions=predictions, references=labels,
+                                    use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
+                                    use_aggregator=False)
+
+    # If pickle file name is provided, save the predictions, labels, inputs, and rouge scores to a pickle file
+    # Target folder: Results/test_runs
+    # File name: pickle_file_params in the format (eval_run_start_time, shard_number)
+    if pickle_file_params is not None:
+        
+        eval_run_start_time, shard_number = pickle_file_params
+        pickle_file_path = get_abs_path(["results", "test_runs", eval_run_start_time])
+        
+        # Create the folder with the timestamp if it doesn't already exist
+        if not os.path.exists(pickle_file_path):
+            os.makedirs(pickle_file_path)
+        
+        # Save the file
+        with open(f'{pickle_file_path}/shard_{shard_number}.pkl', 'wb') as f:
+            pickle.dump({
+                "predictions": predictions,
+                "labels": labels,
+                "inputs": inputs,
+                "rouge_1_avg": r["rouge1"],
+                "rouge_2_avg": r["rouge2"],
+                "rouge_L_avg": r["rougeL"],
+                "rouge_1_ind": r_ind["rouge1"],
+                "rouge_2_ind": r_ind["rouge2"],
+                "rouge_L_ind": r_ind["rougeL"]
+            }, f)
     
     #log examples for debugging
     examples = {}
@@ -99,9 +133,6 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
 
     if save_rouge:
         #save individual rouge scores, sequence length and hash of the prompt
-        r = rouge_score.compute(predictions=predictions, references=labels,
-                                use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
-                                use_aggregator=False)
         label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
         prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
         prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
@@ -111,9 +142,9 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
         df = pd.DataFrame(
             {
                 "hash": hashes,
-                "rouge1": r["rouge1"],
-                "rouge2": r["rouge2"],
-                "rougeL": r["rougeL"],
+                "rouge1": r_ind["rouge1"],
+                "rouge2": r_ind["rouge2"],
+                "rougeL": r_ind["rougeL"],
                 "label_length": label_lengths,
                 "prediction_length": prediction_lengths,
                 "prompt_length": prompt_lengths
@@ -202,8 +233,9 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         
     tokenized_dataset_train = dataset['train'].map(tokenize_function, batched=True)
     tokenized_dataset_val = dataset['validation'].map(tokenize_function_eval, batched=True)
+    tokenized_dataset_test = dataset['test'].map(tokenize_function_eval, batched=True)
     
-    return tokenized_dataset_train, tokenized_dataset_val
+    return tokenized_dataset_train, tokenized_dataset_val, tokenized_dataset_test
   
 
 

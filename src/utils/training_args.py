@@ -60,9 +60,8 @@ class TrainingArgs(DictOverwritable):
     lora_rank: Optional[int] = 8
     lora_alpha: Optional[int] = 8
     lora_dropout: Optional[float] = 0.05
+    testing_mode: bool = False
 
-
-    
 
 SAVED_ARGS = {
     "alpaca_tiny_prop_350_args": TrainingArgs(
