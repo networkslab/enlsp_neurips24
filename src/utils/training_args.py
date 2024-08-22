@@ -61,7 +61,7 @@ class TrainingArgs(DictOverwritable):
     lora_alpha: Optional[int] = 8
     lora_dropout: Optional[float] = 0.05
     testing_mode: bool = False
-    num_test_shards: int = 10
+    num_test_shards: int = 5
 
 
 SAVED_ARGS = {
@@ -215,6 +215,30 @@ SAVED_ARGS = {
         gradient_accumulation_steps=3,
         fp16 = False
     ),
+    "test_alpaca_full_prop_1.3_args": TrainingArgs(
+        learning_rate=2e-5,
+        prop_config=PropagationConfig(),
+        batch_size=8,
+        dataset="tatsu-lab/alpaca",
+        #tokenized_dataset_path="alpaca",
+        save_dataset_dir="alpaca",
+        load_model_from_disk= True,
+        model='results/opt-iml-1.3b/alpaca_22-08_03-45-10/checkpoint-1138',
+        train_epochs=2,
+        save_strategy="epoch",
+        eval_strategy="epoch",
+        max_new_tokens=300,
+        gradient_accumulation_steps=1,
+        load_best_model_at_end=False,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        ddp=True,
+        deepspeed=None,
+        fp16 = False,
+        testing_mode= True
+    ),
+    
 
 }
 
