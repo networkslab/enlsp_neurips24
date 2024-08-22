@@ -61,6 +61,7 @@ class TrainingArgs(DictOverwritable):
     lora_alpha: Optional[int] = 8
     lora_dropout: Optional[float] = 0.05
     testing_mode: bool = False
+    num_test_shards: int = 10
 
 
 SAVED_ARGS = {

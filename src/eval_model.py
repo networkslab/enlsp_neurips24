@@ -144,10 +144,8 @@ def main():
     metrics_callback = train_utils.MetricsCallback(summary_writer, adalas.model.decoder)
     
     if args.testing_mode:
-        num_shards = 10
-        date_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        for i in range(num_shards):
-            test_shard = tokenized_dataset['test'].shard(num_shards, i)
+        for i in range(args.num_test_shards):
+            test_shard = tokenized_dataset['test'].shard(args.num_test_shards, i)
             trainer = SFTTrainerGenerate(
                 model=adalas,
                 args=sft_config,
@@ -155,7 +153,7 @@ def main():
                 eval_dataset=test_shard,
                 tokenizer=tokenizer,
                 data_collator=collator,
-                compute_metrics=(lambda eval_pred: compute_metrics(eval_pred, pickle_file_params=(date_time, i))),
+                compute_metrics=(lambda eval_pred: compute_metrics(eval_pred, pickle_file_params=(current_time_str, i))),
                 callbacks=[metrics_callback],
             )
             trainer.neftune_noise_alpha = None
