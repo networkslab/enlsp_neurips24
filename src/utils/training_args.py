@@ -39,8 +39,8 @@ class TrainingArgs(DictOverwritable):
     save_strategy: str = "no"
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
-    load_best_model_at_end: bool = False,
-    save_total_limit: int = 20,
+    load_best_model_at_end: bool = False
+    save_total_limit: int = 20
     multiprocess: bool = True
     instruction_template: str = "### User:" #deprecated
     response_template: str = "\n### Assistant:" #deprecated
