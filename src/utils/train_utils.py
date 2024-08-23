@@ -50,7 +50,7 @@ DATASET_KEYS ={
 }
     
 
-def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time", pickle_file_params=None):
+def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time", pickle_file_params=None, generation_metrics=None):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -99,7 +99,27 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
     # Target folder: Results/test_runs
     # File name: pickle_file_params in the format (eval_run_start_time, shard_number)
     if pickle_file_params is not None:
-        
+
+        if generation_metrics is not None:
+            if dist.is_available() and dist.is_initialized():
+                    
+                    # Retrieve all distributed skip_count and token_count elements as lists
+                    skip_counts = [generation_metrics['skip_count'].clone() for _ in range(dist.get_world_size())]
+                    token_counts = [generation_metrics['token_count'].clone() for _ in range(dist.get_world_size())]
+                    dist.all_gather(skip_counts, generation_metrics['skip_count'])
+                    dist.all_gather(token_counts, generation_metrics['token_count']) 
+
+                    # Merge the distributed elements
+                    skip_count = torch.zeros_like(skip_counts[0])
+                    token_count = torch.tensor(0)
+                    for i in range(dist.get_world_size()):
+                        skip_count += skip_counts[i]
+                        token_count += token_counts[i]
+
+            else:
+                skip_count = generation_metrics['skip_count'].clone()
+                token_count = generation_metrics['token_count'].clone()
+
         eval_run_start_time, shard_number = pickle_file_params
         pickle_file_path = get_abs_path(["results", "test_runs", eval_run_start_time])
         
@@ -109,7 +129,8 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
         
         # Save the file
         with open(f'{pickle_file_path}/shard_{shard_number}.pkl', 'wb') as f:
-            pickle.dump({
+
+            gen_metrics_dict = {
                 "predictions": predictions,
                 "labels": labels,
                 "inputs": inputs,
@@ -119,7 +140,13 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
                 "rouge_1_ind": r_ind["rouge1"],
                 "rouge_2_ind": r_ind["rouge2"],
                 "rouge_L_ind": r_ind["rougeL"]
-            }, f)
+            }
+
+            # Only add the skip percentages if the generation metrics are provided
+            if generation_metrics is not None:
+                gen_metrics_dict["layer_skip_percentages"] = np.array(skip_count / token_count)
+
+            pickle.dump(gen_metrics_dict, f)
     
     #log examples for debugging
     examples = {}
@@ -395,8 +422,11 @@ class MetricsCallback(TensorBoardCallback):
             self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
         elif not dist.is_available():
             self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
-        self.model.flush_metrics(phase)
+        self.model.flush_train_val_metrics(phase)
 
+    # Access the model's generation metrics and reset them at the end of every evaluation phase
+    def on_evaluate(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        self.model._init_generation_metrics()
 
 def get_tensorboard_training_layout(decoder: AdalasOPTDecoder):
     layout = {

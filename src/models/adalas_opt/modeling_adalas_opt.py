@@ -62,16 +62,20 @@ class AdalasOPTDecoder(OPTDecoder):
         self.init_controllers()
         self.with_metrics = config.with_metrics
         if self.with_metrics:
-            self._init_metrics()
+            self._init_train_val_metrics()
+            self._init_generation_metrics()
         # Initialize weights and apply final processing
         self.post_init()
         self.with_cost_aware_loss = config.with_cost_aware_loss
 
-    def _init_metrics(self):
-        self.metrics = {'train': self._init_metric_dict_for_phase(),
-                        'eval': self._init_metric_dict_for_phase()}
+    def _init_train_val_metrics(self):
+        self.metrics = {'train': self._init_train_val_metric_dict_for_phase(),
+                        'eval': self._init_train_val_metric_dict_for_phase()}
+        
+    def _init_generation_metrics(self):
+        self.generation_metrics = {'skip_count': torch.zeros(len(self.layers)), 'token_count': torch.tensor(0)}
 
-    def _init_metric_dict_for_phase(self):
+    def _init_train_val_metric_dict_for_phase(self):
         return {'percentage_skip': [None for _ in range(len(self.layers))]}
 
     def forward(
@@ -221,6 +225,10 @@ class AdalasOPTDecoder(OPTDecoder):
                         self.metrics[train_eval_phase]['percentage_skip'][idx] = percentage_skips
                     else:
                         self.metrics[train_eval_phase]['percentage_skip'][idx] = torch.cat((self.metrics[train_eval_phase]['percentage_skip'][idx], percentage_skips))
+            elif not input_contains_prompt:
+                self.metrics['generate']['skip_count'][idx] += skip_mask[:, -1].sum()
+                if idx == len(self.layers) - 1: # Only increment the token count at the last layer (Once per generated token)
+                    self.metrics['generate']['token_count'] += 1
             if use_cache:
                 next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
@@ -323,12 +331,12 @@ class AdalasOPTDecoder(OPTDecoder):
     def freeze_backbone(self, freeze_head = False):
         freeze_network(self, ['controllers'] if freeze_head else ['controllers', 'embed_tokens'])
 
-    def flush_metrics(self, phase = None):
+    def flush_train_val_metrics(self, phase = None):
         ''' should typically be called after every logging step in the callback'''
         if phase is None:
-            self._init_metrics()
+            self._init_train_val_metrics()
         else:
-            self.metrics[phase] = self._init_metric_dict_for_phase()
+            self.metrics[phase] = self._init_train_val_metric_dict_for_phase()
 
 class AdalasOPTModel(OPTModel):
     def __init__(self, config: AdalasOPTConfig):

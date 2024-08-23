@@ -105,8 +105,8 @@ def main():
 
     #Metrics
     def compute_metrics(eval_pred, pickle_file_params=None):
-        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True,fname=current_time_str, pickle_file_params=pickle_file_params)
-
+        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True,fname=current_time_str, pickle_file_params=pickle_file_params, generation_metrics=(adalas.model.decoder.generation_metrics if adalas_config.with_metrics else None))
+    
     #Training
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
