@@ -20,17 +20,17 @@ import inspect
 import copy
 import pandas as pd
 import zlib
-from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm, prepare_alpaca
+from src.utils.prepare_dataset import prepare_samsum, prepare_reddit, prepare_cnndm, prepare_alpaca
 import pickle
 import os
 
 DATASET_KEYS ={
-    "databricks/databricks-dolly-15k": {
-        "prompt": "instruction",
-        "context": "context",
-        "response": "response",
-        "prepare_fnc": prepare_databricks
-    },
+    # "databricks/databricks-dolly-15k": {
+    #     "prompt": "instruction",
+    #     "context": "context",
+    #     "response": "response",
+    #     "prepare_fnc": prepare_databricks
+    # },
     "Samsung/samsum": {
         "prompt": "dialogue",
         "response": "summary",
