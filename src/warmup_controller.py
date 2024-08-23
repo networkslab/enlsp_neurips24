@@ -49,17 +49,13 @@ def main():
         padding_side='left', use_fast=False,
         sep_token=sep_token
     )
-
-    #templates
-    instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False) ['input_ids'] + [tokenizer.sep_token_id]
-    response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-
+    
     #Dataset
     if args.tokenized_dataset_path is not None:
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.tokenized_dataset_path]))
 
     else:
-        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args, instruction_template_ids, response_template_ids)
+        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args)
 
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
@@ -88,10 +84,12 @@ def main():
         adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(model_name,config=adalas_config)
 
+    
     if args.fp16:
         adalas = adalas.to(torch.float16)
-    
 
+    
+    adalas.freeze_backbone(freeze_head=False)
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
@@ -128,6 +126,9 @@ def main():
         evaluation_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         save_strategy=args.save_strategy,
+        save_steps=args.save_steps,
+        save_total_limit=args.save_total_limit,
+        load_best_model_at_end=args.load_best_model_at_end,
         include_inputs_for_metrics=True,
         eval_with_generate=True,
         max_new_tokens=args.max_new_tokens,
@@ -152,8 +153,8 @@ def main():
         callbacks=[metrics_callback],
     )
     trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
-    # trainer.evaluate()
     trainer.train() # make sure there are trainable components, otherwise the backprop will fail.
+    # trainer.evaluate()
 
 if __name__ == "__main__":
     main()

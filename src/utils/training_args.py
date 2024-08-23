@@ -39,11 +39,12 @@ class TrainingArgs(DictOverwritable):
     save_strategy: str = "no"
     prompt_seq_length: float = 0.7
     from_checkpoint: bool = False
-    load_best_model_at_end: bool = False,
-    save_total_limit: int = 3,
+    load_best_model_at_end: bool = False
+    save_total_limit: int = 20
     multiprocess: bool = True
-    instruction_template: str = "### User:"
-    response_template: str = "\n### Assistant:"
+    instruction_template: str = "### User:" #deprecated
+    response_template: str = "\n### Assistant:" #deprecated
+    context_template: Optional[str] = None
     ddp: bool = True
     skip_prompt: bool = False
     max_new_tokens: int = 200
@@ -64,6 +65,139 @@ class TrainingArgs(DictOverwritable):
     
 
 SAVED_ARGS = {
+    "alpaca_tiny_prop_350_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="opt350_alpaca_tiny",
+        model='facebook/opt-350M',
+        train_epochs=3,
+        save_strategy="steps",
+        gradient_accumulation_steps=5,
+        save_steps=20,
+        eval_steps=20,
+        load_best_model_at_end=True,
+        save_total_limit=2,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        ddp=True,
+        tokenized_dataset_path="opt350_alpaca_tiny",
+        deepspeed='ds_config.json',
+        fp16 = False
+    ),
+    "alpaca_opt350_gumbels_eval": TrainingArgs(
+        prop_config=DynamicPropagationConfig(controller_layers=list(range(1, 23))),
+        batch_size=4,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="opt350_alpaca",
+        model='results/checkpoint-3640/alpaca_20-08_13-14-54/checkpoint-1820',
+        train_epochs=1,
+        load_model_from_disk=True,
+        learning_rate=1e-5,
+        save_strategy="steps",
+        gradient_accumulation_steps=5,
+        save_steps=910,
+        eval_steps=910,
+        load_best_model_at_end=True,
+        save_total_limit=3,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        ddp=True,
+        # tokenized_dataset_path="opt350_alpaca",
+        deepspeed=None,
+        fp16 = False
+    ),
+    "alpaca_opt350_gumbels_hs": TrainingArgs(
+        prop_config=DynamicPropagationConfig(controller_layers=list(range(1, 23))),
+        batch_size=4,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="opt350_alpaca",
+        model='results/opt-350M/alpaca_19-08_18-52-58/checkpoint-3640',
+        train_epochs=1,
+        load_model_from_disk=True,
+        learning_rate=1e-5,
+        save_strategy=EvaluationStrategy.EPOCH,
+        eval_strategy=EvaluationStrategy.EPOCH,
+        gradient_accumulation_steps=5,
+        save_total_limit=3,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        with_cost_aware_loss=True,
+        ddp=True,
+        # tokenized_dataset_path="opt350_alpaca",
+        deepspeed='ds_config.json',
+        fp16 = False
+    ),
+    "alpaca_opt350_gumbels_fixed": TrainingArgs(
+        prop_config=DynamicPropagationConfig(controller_layers=list(range(1, 23)), with_fixed_input=True),
+        batch_size=4,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="opt350_alpaca",
+        model='results/opt-350M/alpaca_19-08_18-52-58/checkpoint-3640',
+        train_epochs=1,
+        load_model_from_disk=True,
+        learning_rate=1e-5,
+        save_strategy=EvaluationStrategy.EPOCH,
+        eval_strategy=EvaluationStrategy.EPOCH,
+        gradient_accumulation_steps=5,
+        save_total_limit=3,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        with_cost_aware_loss=True,
+        ddp=True,
+        # tokenized_dataset_path="opt350_alpaca",
+        deepspeed='ds_config.json',
+        fp16 = False
+    ),
+    "alpaca_random_dropout_fine_tune_prop_350_args": TrainingArgs(
+        prop_config=StochasticDropoutPropagationConfig(skip_probs=[0] + [0.35] * 22 + [0]),
+        batch_size=1,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="opt350_alpaca",
+        model='results/opt-350M/alpaca_18-08_11-52-14/checkpoint-5460',
+        train_epochs=2,
+        load_model_from_disk=True,
+        learning_rate=1e-5,
+        save_strategy=EvaluationStrategy.EPOCH,
+
+        gradient_accumulation_steps=5,
+        save_steps=910,
+        eval_steps=910,
+        load_best_model_at_end=True,
+        save_total_limit=3,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        ddp=False,
+        tokenized_dataset_path="opt350_alpaca",
+        deepspeed='ds_config.json',
+        fp16 = False
+    ),
+    "alpaca_full_prop_350_args": TrainingArgs(
+        prop_config=PropagationConfig(),
+        batch_size=4,
+        dataset="tatsu-lab/alpaca",
+        save_dataset_dir="opt350_alpaca",
+        model='facebook/opt-350M',
+        train_epochs=3,
+        save_strategy="steps",
+        gradient_accumulation_steps=5,
+        save_steps=910,
+        eval_steps=910,
+        load_best_model_at_end=True,
+        save_total_limit=3,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        ddp=True,
+        tokenized_dataset_path="opt350_alpaca",
+        deepspeed='ds_config.json',
+        fp16 = False
+    ),
     "random_for_budget_test": TrainingArgs(
         prop_config=RandomForBudgetPropagationConfig(budget=9),
         batch_size=4,
@@ -90,8 +224,6 @@ SAVED_ARGS = {
         tokenized_dataset_path="cnn_dailymail",
         save_dataset_dir="cnn_dailymail",
         model='facebook/opt-iml-1.3b',
-        instruction_template= "### Article:",
-        response_template= "\n### Summary:",
         train_epochs=2,
         save_strategy="steps",
         save_steps=1994,

@@ -49,16 +49,12 @@ def main():
         sep_token=sep_token
     )
 
-    #templates
-    instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-    response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-
     #Dataset
     if args.tokenized_dataset_path is not None:
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.tokenized_dataset_path]))
 
     else:
-        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args, instruction_template_ids, response_template_ids)
+        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args)
 
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
@@ -129,6 +125,9 @@ def main():
         evaluation_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         save_strategy=args.save_strategy,
+        save_steps=args.save_steps,
+        save_total_limit=args.save_total_limit,
+        load_best_model_at_end=args.load_best_model_at_end,
         include_inputs_for_metrics=True,
         eval_with_generate=True,
         max_new_tokens=args.max_new_tokens,

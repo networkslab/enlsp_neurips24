@@ -20,7 +20,7 @@ import inspect
 import copy
 import pandas as pd
 import zlib
-from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm
+from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm, prepare_alpaca
 
 DATASET_KEYS ={
     "databricks/databricks-dolly-15k": {
@@ -38,6 +38,12 @@ DATASET_KEYS ={
         "prompt": "article",
         "response": "highlights",
         "prepare_fnc": prepare_cnndm
+    },
+    "tatsu-lab/alpaca": {
+        "prompt": "instruction",
+        "context": "input",
+        "response": "output",
+        "prepare_fnc": prepare_alpaca
     }
 }
     
@@ -75,7 +81,10 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
     result["rougeL"] = r["rougeL"]
     
     #log the average error in length of the generated text as a fraction of the length of the label
-    pred_percentage_length = [(float)((len(predictions[i])-len(labels[i])))/len(labels[i]) for i in range(len(predictions))]# TODO remove empty labels
+    pred_percentage_length  = []
+    for i in range(len(predictions)):
+        if len(labels[i]) > 0:
+            pred_percentage_length.append((float)((len(predictions[i])-len(labels[i])))/len(labels[i]))
     result["pred_percentage_length"] = np.mean(pred_percentage_length)
     
     #log examples for debugging
@@ -114,16 +123,16 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
     return {k: round(v,4) for k,v in result.items()}
 
 
-def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids):
+def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template=None):
     
     #Tokenize
     def tokenize_function(examples):
         prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
         #check if 'context' is in the datassetKeys 
-        if 'context' in DATASET_KEYS[dataset_name]:
+        if 'context' in DATASET_KEYS[dataset_name] and examples[DATASET_KEYS[dataset_name]['context']] is not None:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            prompts = list(map(lambda p,c: p + (context_template + c if len(c.strip()) > 0 else ''), prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         
@@ -155,10 +164,10 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         #### SAME AS tokenize_function ####
         prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
         #check if 'context' is in the datassetKeys 
-        if 'context' in DATASET_KEYS[dataset_name]:
+        if 'context' in DATASET_KEYS[dataset_name] and examples[DATASET_KEYS[dataset_name]['context']] is not None:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            prompts = list(map(lambda p,c: p + (context_template + c if len(c.strip()) > 0 else ''), prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         

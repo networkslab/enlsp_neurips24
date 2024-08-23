@@ -331,8 +331,8 @@ class AdalasOPTDecoder(OPTDecoder):
         else:
             return hidden_states.detach()
 
-    def freeze_backbone(self):
-        freeze_network(self, ['controllers'])
+    def freeze_backbone(self, freeze_head = False):
+        freeze_network(self, ['controllers'] if freeze_head else ['controllers', 'embed_tokens'])
 
     def flush_metrics(self, phase = None):
         ''' should typically be called after every logging step in the callback'''
@@ -355,8 +355,8 @@ class AdalasOPTModel(OPTModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    def freeze(self):
-        self.decoder.freeze_backbone()
+    def freeze(self, freeze_head = False):
+        self.decoder.freeze_backbone(freeze_head)
 
 
 class AdalasOPTForCausalLM(OPTForCausalLM):
@@ -450,14 +450,18 @@ class AdalasOPTForCausalLM(OPTForCausalLM):
             attentions=outputs.attentions,
         )
 
-    def freeze_backbone_and_head(self):
+    def freeze_backbone(self, freeze_head = False):
         trainable_parameters_before = filter(lambda p: p.requires_grad,
                                       self.parameters())
         num_trainable_params_before = sum(
             [np.prod(p.size()) for p in trainable_parameters_before])
 
-        self.model.freeze()
-        freeze_network(self.lm_head, [])
+        self.model.freeze(freeze_head)
+        named_trainable_params = map(lambda t: t[0], filter(lambda p: p[1].requires_grad,
+                                     self.named_parameters()))
+        if not freeze_head:
+            assert self.lm_head.weight.requires_grad, 'Make sure the head is unfrozen. This may be due to it being tied with embedding'
+
         trainable_parameters_after = filter(lambda p: p.requires_grad,
                                              self.parameters())
         num_trainable_params_after = sum(
