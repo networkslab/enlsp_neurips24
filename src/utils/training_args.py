@@ -24,7 +24,7 @@ class TrainingArgs(DictOverwritable):
     tokenized_dataset_path: str = None
     load_dataset_from_disk: bool = False #deprecated for tokenized_dataset_path
     load_model_from_disk: bool = False
-    dataset: str = 'databricks/databricks-dolly-15k'
+    dataset: str = 'Samsung/samsum'
     model: str = 'facebook/opt-125M'
     prop_config: PropagationConfig = PropagationConfig()
     batch_size: int = 10
@@ -60,11 +60,33 @@ class TrainingArgs(DictOverwritable):
     lora_rank: Optional[int] = 8
     lora_alpha: Optional[int] = 8
     lora_dropout: Optional[float] = 0.05
+    testing_mode: bool = False
+    num_test_shards: int = 5
 
-
-    
 
 SAVED_ARGS = {
+    "samsum_local_test": TrainingArgs(
+        prop_config=StochasticDropoutPropagationConfig(skip_probs=[0] + [0.8] * 5 + [0.3] * 5 + [0]),
+        batch_size=3,
+        dataset="Samsung/samsum",
+        save_dataset_dir="mini_samsum",
+        model='facebook/opt-125M',
+        train_epochs=3,
+        save_strategy="steps",
+        save_steps=20,
+        eval_steps=20,
+        load_best_model_at_end=True,
+        save_total_limit=2,
+        max_seq_length=264,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=False,
+        ddp=False,
+        # tokenized_dataset_path="opt350_alpaca_tiny",
+        deepspeed='ds_config.json',
+        fp16 = False,
+        testing_mode=True,
+        num_test_shards=4
+    ),
     "alpaca_tiny_prop_350_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=4,
@@ -233,6 +255,29 @@ SAVED_ARGS = {
         deepspeed='ds_config.json',
         gradient_accumulation_steps=3,
         fp16 = False
+    ),
+    "test_alpaca_full_prop_1.3_args": TrainingArgs(
+        learning_rate=2e-5,
+        prop_config=PropagationConfig(),
+        batch_size=8,
+        dataset="tatsu-lab/alpaca",
+        #tokenized_dataset_path="alpaca",
+        save_dataset_dir="alpaca",
+        load_model_from_disk= True,
+        model='results/opt-iml-1.3b/alpaca_22-08_03-45-10/checkpoint-1138',
+        train_epochs=2,
+        save_strategy="epoch",
+        eval_strategy="epoch",
+        max_new_tokens=300,
+        gradient_accumulation_steps=1,
+        load_best_model_at_end=False,
+        max_seq_length=512,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=True,
+        ddp=True,
+        deepspeed=None,
+        fp16 = False,
+        testing_mode= True
     ),
 
 }
