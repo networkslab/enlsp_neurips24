@@ -5,7 +5,7 @@ import math
 
 
 class KnapsackSolver:
-    def __init__(self, values_ds: np.array, weights_ds: np.array, indices_ds: np.array, shard_number: int=1):
+    def __init__(self, values_ds: np.array, weights_ds: np.array, indices_ds: np.array, shard_number: int=1, max_layer: int=24):
         self.shard_size = shard_number # process will be divided into this many shards
         #split values and weights into shards
         self.values_ds = np.array_split(values_ds, shard_number)
@@ -17,6 +17,7 @@ class KnapsackSolver:
         self.indices_mat = [None] * shard_number
         self.total_groups = float(sum(self.num_groups))
         self.total_max_cap = sum(self.max_caps)
+        self.max_layer = max_layer
         
     
     def reduction(values: list[float], weights: list[float]):
@@ -50,7 +51,7 @@ class KnapsackSolver:
     
     def get_optimal_value(self, beta: float):
         #beta is the average layer use
-        cap = int(beta/24.0 * self.total_max_cap)
+        cap = int(beta/self.max_layer * self.total_max_cap)
         #split cap according to num_groups in each shard
         caps = [self.max_caps[i] / self.total_max_cap * cap for i in range(self.shard_size)]
         values = [self.dp_mat[i][-1][int(caps[i])] for i in range(self.shard_size)]
@@ -62,7 +63,7 @@ class KnapsackSolver:
 
     def shard_solve(self, s_rank, return_dict):
         """:param max_cap: maximum capacity over the entire dataset (the knapsack capacity). Should be an int for
-        instance 3000 x 24
+        instance 3000 x max_layer
         values (3000 x 4) are assumed to be sorted in decreasing order across the columns
         """
 
@@ -108,7 +109,7 @@ class KnapsackSolver:
     def reconstruct_chosen_items(self, beta: float):
         #reconstruct the items chosen as a list
         #split cap according to num_groups in each shard
-        caps = [self.max_caps[i] * beta/24.0 for i in range(self.shard_size)]
+        caps = [self.max_caps[i] * beta/self.max_layer for i in range(self.shard_size)]
         chosen_items = []
         for i in range(self.shard_size):
             #round down to the nearest integer
