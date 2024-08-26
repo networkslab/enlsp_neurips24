@@ -7,7 +7,7 @@ from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_N
 from transformers.utils import is_peft_available
 
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTDecoder
-from src.utils.utils import get_abs_path
+from src.utils.utils import get_abs_path, free
 import json
 from torch import nn
 import torch.distributed as dist
@@ -25,12 +25,6 @@ import pickle
 import os
 
 DATASET_KEYS ={
-    # "databricks/databricks-dolly-15k": {
-    #     "prompt": "instruction",
-    #     "context": "context",
-    #     "response": "response",
-    #     "prepare_fnc": prepare_databricks
-    # },
     "Samsung/samsum": {
         "prompt": "dialogue",
         "response": "summary",
@@ -50,7 +44,9 @@ DATASET_KEYS ={
 }
     
 
-def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time", pickle_file_params=None, generation_metrics=None):
+def compute_metrics(eval_pred,tokenizer, save_rouge=False,
+                    samples_to_save = 20,fname="no_time",
+                    pickle_file_params=None, generation_metrics=None):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -111,7 +107,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
 
                     # Merge the distributed elements
                     skip_count = torch.zeros_like(skip_counts[0])
-                    token_count = torch.tensor(0)
+                    token_count = torch.tensor(0).to(skip_count.device)
                     for i in range(dist.get_world_size()):
                         skip_count += skip_counts[i]
                         token_count += token_counts[i]
@@ -120,8 +116,9 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
                 skip_count = generation_metrics['skip_count'].clone()
                 token_count = generation_metrics['token_count'].clone()
 
-        eval_run_start_time, shard_number = pickle_file_params
-        pickle_file_path = get_abs_path(["results", "test_runs", eval_run_start_time])
+        eval_run_start_time, shard_number, model_name, dataset_name = pickle_file_params
+        file_name = f'{model_name}_{dataset_name}_{eval_run_start_time}'
+        pickle_file_path = get_abs_path(["results", "test_runs", file_name])
         
         # Create the folder with the timestamp if it doesn't already exist
         if not os.path.exists(pickle_file_path):
@@ -144,7 +141,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
 
             # Only add the skip percentages if the generation metrics are provided
             if generation_metrics is not None:
-                gen_metrics_dict["layer_skip_percentages"] = np.array(skip_count / token_count)
+                gen_metrics_dict["layer_skip_percentages"] = np.array(free(skip_count) / free(token_count))
 
             pickle.dump(gen_metrics_dict, f)
     

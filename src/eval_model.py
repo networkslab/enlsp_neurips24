@@ -153,7 +153,9 @@ def main():
                 eval_dataset=test_shard,
                 tokenizer=tokenizer,
                 data_collator=collator,
-                compute_metrics=(lambda eval_pred: compute_metrics(eval_pred, pickle_file_params=(current_time_str, i))),
+                compute_metrics=(lambda eval_pred: compute_metrics(
+                    eval_pred,
+                    pickle_file_params=(current_time_str, i, stripped_model_name, stripped_dataset_name))),
                 callbacks=[metrics_callback],
             )
             trainer.neftune_noise_alpha = None

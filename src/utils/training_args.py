@@ -24,7 +24,7 @@ class TrainingArgs(DictOverwritable):
     tokenized_dataset_path: str = None
     load_dataset_from_disk: bool = False #deprecated for tokenized_dataset_path
     load_model_from_disk: bool = False
-    dataset: str = 'databricks/databricks-dolly-15k'
+    dataset: str = 'Samsung/samsum'
     model: str = 'facebook/opt-125M'
     prop_config: PropagationConfig = PropagationConfig()
     batch_size: int = 10
@@ -65,6 +65,28 @@ class TrainingArgs(DictOverwritable):
 
 
 SAVED_ARGS = {
+    "samsum_local_test": TrainingArgs(
+        prop_config=StochasticDropoutPropagationConfig(skip_probs=[0] + [0.8] * 5 + [0.3] * 5 + [0]),
+        batch_size=3,
+        dataset="Samsung/samsum",
+        save_dataset_dir="mini_samsum",
+        model='facebook/opt-125M',
+        train_epochs=3,
+        save_strategy="steps",
+        save_steps=20,
+        eval_steps=20,
+        load_best_model_at_end=True,
+        save_total_limit=2,
+        max_seq_length=264,
+        prompt_seq_length=0.25,
+        gradient_checkpointing=False,
+        ddp=False,
+        # tokenized_dataset_path="opt350_alpaca_tiny",
+        deepspeed='ds_config.json',
+        fp16 = False,
+        testing_mode=True,
+        num_test_shards=4
+    ),
     "alpaca_tiny_prop_350_args": TrainingArgs(
         prop_config=PropagationConfig(),
         batch_size=4,
@@ -238,7 +260,6 @@ SAVED_ARGS = {
         fp16 = False,
         testing_mode= True
     ),
-    
 
 }
 

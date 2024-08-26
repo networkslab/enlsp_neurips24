@@ -68,12 +68,18 @@ class AdalasOPTDecoder(OPTDecoder):
         self.post_init()
         self.with_cost_aware_loss = config.with_cost_aware_loss
 
+    def _get_model_device(self):
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
+
     def _init_train_val_metrics(self):
         self.metrics = {'train': self._init_train_val_metric_dict_for_phase(),
                         'eval': self._init_train_val_metric_dict_for_phase()}
         
     def _init_generation_metrics(self):
-        self.generation_metrics = {'skip_count': torch.zeros(len(self.layers)), 'token_count': torch.tensor(0)}
+        self.generation_metrics = {
+            'skip_count': torch.zeros(len(self.layers)).to(self._get_model_device()),
+            'token_count': torch.tensor(0).to(self._get_model_device())
+        }
 
     def _init_train_val_metric_dict_for_phase(self):
         return {'percentage_skip': [None for _ in range(len(self.layers))]}
@@ -226,9 +232,9 @@ class AdalasOPTDecoder(OPTDecoder):
                     else:
                         self.metrics[train_eval_phase]['percentage_skip'][idx] = torch.cat((self.metrics[train_eval_phase]['percentage_skip'][idx], percentage_skips))
             elif not input_contains_prompt:
-                self.metrics['generate']['skip_count'][idx] += skip_mask[:, -1].sum()
+                self.generation_metrics['skip_count'][idx] += skip_mask[:, -1].sum()
                 if idx == len(self.layers) - 1: # Only increment the token count at the last layer (Once per generated token)
-                    self.metrics['generate']['token_count'] += 1
+                    self.generation_metrics['token_count'] += input_ids.shape[0] # As many tokens as batch size
             if use_cache:
                 next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 

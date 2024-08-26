@@ -104,3 +104,8 @@ def validate_args(args):
         assert len(args.prop_config.skip_layers) > 0, "STATIC SKIP needs a list of layers to skip"
     if args.prop_config.propagation_mode == PropagationMode.STOCHASTIC_DROPOUT:
         assert len(args.prop_config.skip_probs) > 0, 'STOCHASTIC DROPOUT needs a list of skip probabilities'
+
+
+def free(torch_tensor):
+    '''detaches a torch tensor, moves it to cpu and casts it to numpy array'''
+    return torch_tensor.cpu().detach().numpy()

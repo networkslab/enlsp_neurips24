@@ -1,25 +1,6 @@
 from datasets import load_dataset, DatasetDict, Split
 from src.utils import train_utils
 
-
-# def prepare_databricks(tokenizer, args):
-#     dataset_name = "databricks/databricks-dolly-15k"
-#     instruction_template = "### User:"
-#     response_template = "\n### Assistant:"
-#     context_template = "\n"
-    
-#     instruction_template_ids = tokenizer(instruction_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-#     response_template_ids = tokenizer(response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-    
-#     full_dataset = load_dataset(dataset_name, split=Split.TRAIN)
-#     # full_dataset = full_dataset.select(indices=range(500))
-#     dataset = full_dataset.train_test_split(test_size=0.2,seed=args.seed)
-#     dataset['validation'] = dataset['test']
-#     del dataset['test']
-#     tokenized_dataset_train, tokenized_dataset_val = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template)
-#     tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val})
-#     return tokenized_dataset
-
 def prepare_samsum(tokenizer, args):
     dataset_name = "Samsung/samsum"
     instruction_template = "### Dialogue:"
@@ -29,6 +10,9 @@ def prepare_samsum(tokenizer, args):
     response_template_ids = tokenizer(response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
 
     dataset = load_dataset(dataset_name)
+    # dataset['train'] = dataset['train'].select(indices=range(200))
+    # dataset['validation'] = dataset['validation'].select(indices=range(200))
+    # dataset['test'] = dataset['test'].select(indices=range(200))
     tokenized_dataset_train, tokenized_dataset_val, tokenized_dataset_test = train_utils.tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids)
     tokenized_dataset = DatasetDict({'train': tokenized_dataset_train, 'validation': tokenized_dataset_val, 'test': tokenized_dataset_test})
     return tokenized_dataset
