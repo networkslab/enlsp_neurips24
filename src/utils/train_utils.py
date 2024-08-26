@@ -93,7 +93,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False,
 
     # If pickle file name is provided, save the predictions, labels, inputs, and rouge scores to a pickle file
     # Target folder: Results/test_runs
-    # File name: pickle_file_params in the format (eval_run_start_time, shard_number)
+    # File name: pickle_file_params in the format (eval_run_start_time, shard_number, model_name, dataset_name)
     if pickle_file_params is not None:
 
         if generation_metrics is not None:
