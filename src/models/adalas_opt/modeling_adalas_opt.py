@@ -62,16 +62,26 @@ class AdalasOPTDecoder(OPTDecoder):
         self.init_controllers()
         self.with_metrics = config.with_metrics
         if self.with_metrics:
-            self._init_metrics()
+            self._init_train_val_metrics()
+            self._init_generation_metrics()
         # Initialize weights and apply final processing
         self.post_init()
         self.with_cost_aware_loss = config.with_cost_aware_loss
 
-    def _init_metrics(self):
-        self.metrics = {'train': self._init_metric_dict_for_phase(),
-                        'eval': self._init_metric_dict_for_phase()}
+    def _get_model_device(self):
+        return 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    def _init_metric_dict_for_phase(self):
+    def _init_train_val_metrics(self):
+        self.metrics = {'train': self._init_train_val_metric_dict_for_phase(),
+                        'eval': self._init_train_val_metric_dict_for_phase()}
+        
+    def _init_generation_metrics(self):
+        self.generation_metrics = {
+            'skip_count': torch.zeros(len(self.layers)).to(self._get_model_device()),
+            'token_count': torch.tensor(0).to(self._get_model_device())
+        }
+
+    def _init_train_val_metric_dict_for_phase(self):
         return {'percentage_skip': [None for _ in range(len(self.layers))]}
 
     def forward(
@@ -226,6 +236,10 @@ class AdalasOPTDecoder(OPTDecoder):
                         self.metrics[train_eval_phase]['percentage_skip'][idx] = percentage_skips
                     else:
                         self.metrics[train_eval_phase]['percentage_skip'][idx] = torch.cat((self.metrics[train_eval_phase]['percentage_skip'][idx], percentage_skips))
+            elif not input_contains_prompt:
+                self.generation_metrics['skip_count'][idx] += skip_mask[:, -1].sum()
+                if idx == len(self.layers) - 1: # Only increment the token count at the last layer (Once per generated token)
+                    self.generation_metrics['token_count'] += input_ids.shape[0] # As many tokens as batch size
             if use_cache:
                 next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
@@ -331,15 +345,15 @@ class AdalasOPTDecoder(OPTDecoder):
         else:
             return hidden_states.detach()
 
-    def freeze_backbone(self):
-        freeze_network(self, ['controllers'])
+    def freeze_backbone(self, freeze_head = False):
+        freeze_network(self, ['controllers'] if freeze_head else ['controllers', 'embed_tokens'])
 
-    def flush_metrics(self, phase = None):
+    def flush_train_val_metrics(self, phase = None):
         ''' should typically be called after every logging step in the callback'''
         if phase is None:
-            self._init_metrics()
+            self._init_train_val_metrics()
         else:
-            self.metrics[phase] = self._init_metric_dict_for_phase()
+            self.metrics[phase] = self._init_train_val_metric_dict_for_phase()
 
     def _set_random_route(self):
         total_num_layers = len(self.layers)
@@ -355,8 +369,8 @@ class AdalasOPTModel(OPTModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    def freeze(self):
-        self.decoder.freeze_backbone()
+    def freeze(self, freeze_head = False):
+        self.decoder.freeze_backbone(freeze_head)
 
 
 class AdalasOPTForCausalLM(OPTForCausalLM):
@@ -450,14 +464,18 @@ class AdalasOPTForCausalLM(OPTForCausalLM):
             attentions=outputs.attentions,
         )
 
-    def freeze_backbone_and_head(self):
+    def freeze_backbone(self, freeze_head = False):
         trainable_parameters_before = filter(lambda p: p.requires_grad,
                                       self.parameters())
         num_trainable_params_before = sum(
             [np.prod(p.size()) for p in trainable_parameters_before])
 
-        self.model.freeze()
-        freeze_network(self.lm_head, [])
+        self.model.freeze(freeze_head)
+        named_trainable_params = map(lambda t: t[0], filter(lambda p: p[1].requires_grad,
+                                     self.named_parameters()))
+        if not freeze_head:
+            assert self.lm_head.weight.requires_grad, 'Make sure the head is unfrozen. This may be due to it being tied with embedding'
+
         trainable_parameters_after = filter(lambda p: p.requires_grad,
                                              self.parameters())
         num_trainable_params_after = sum(

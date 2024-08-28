@@ -7,7 +7,7 @@ from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_N
 from transformers.utils import is_peft_available
 
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTDecoder
-from src.utils.utils import get_abs_path
+from src.utils.utils import get_abs_path, free
 import json
 from torch import nn
 import torch.distributed as dist
@@ -20,15 +20,11 @@ import inspect
 import copy
 import pandas as pd
 import zlib
-from src.utils.prepare_dataset import prepare_databricks, prepare_samsum, prepare_reddit, prepare_cnndm
+from src.utils.prepare_dataset import prepare_samsum, prepare_reddit, prepare_cnndm, prepare_alpaca
+import pickle
+import os
 
 DATASET_KEYS ={
-    "databricks/databricks-dolly-15k": {
-        "prompt": "instruction",
-        "context": "context",
-        "response": "response",
-        "prepare_fnc": prepare_databricks
-    },
     "Samsung/samsum": {
         "prompt": "dialogue",
         "response": "summary",
@@ -38,11 +34,19 @@ DATASET_KEYS ={
         "prompt": "article",
         "response": "highlights",
         "prepare_fnc": prepare_cnndm
+    },
+    "tatsu-lab/alpaca": {
+        "prompt": "instruction",
+        "context": "input",
+        "response": "output",
+        "prepare_fnc": prepare_alpaca
     }
 }
     
 
-def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,fname="no_time"):
+def compute_metrics(eval_pred,tokenizer, save_rouge=False,
+                    samples_to_save = 20,fname="no_time",
+                    pickle_file_params=None, generation_metrics=None):
     """Computes ROUGE score for evaluation predictions
 
     Args:
@@ -75,8 +79,71 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
     result["rougeL"] = r["rougeL"]
     
     #log the average error in length of the generated text as a fraction of the length of the label
-    pred_percentage_length = [(float)((len(predictions[i])-len(labels[i])))/len(labels[i]) for i in range(len(predictions))]# TODO remove empty labels
+    pred_percentage_length  = []
+    for i in range(len(predictions)):
+        if len(labels[i]) > 0:
+            pred_percentage_length.append((float)((len(predictions[i])-len(labels[i])))/len(labels[i]))
     result["pred_percentage_length"] = np.mean(pred_percentage_length)
+
+    # Calculate the individual rouge scores if save_rouge is True or pickle_file_params is provided
+    if save_rouge or pickle_file_params is not None:
+        r_ind = rouge_score.compute(predictions=predictions, references=labels,
+                                    use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
+                                    use_aggregator=False)
+
+    # If pickle file name is provided, save the predictions, labels, inputs, and rouge scores to a pickle file
+    # Target folder: Results/test_runs
+    # File name: pickle_file_params in the format (eval_run_start_time, shard_number, model_name, dataset_name)
+    if pickle_file_params is not None:
+
+        if generation_metrics is not None:
+            if dist.is_available() and dist.is_initialized():
+                    
+                    # Retrieve all distributed skip_count and token_count elements as lists
+                    skip_counts = [generation_metrics['skip_count'].clone() for _ in range(dist.get_world_size())]
+                    token_counts = [generation_metrics['token_count'].clone() for _ in range(dist.get_world_size())]
+                    dist.all_gather(skip_counts, generation_metrics['skip_count'])
+                    dist.all_gather(token_counts, generation_metrics['token_count']) 
+
+                    # Merge the distributed elements
+                    skip_count = torch.zeros_like(skip_counts[0])
+                    token_count = torch.tensor(0).to(skip_count.device)
+                    for i in range(dist.get_world_size()):
+                        skip_count += skip_counts[i]
+                        token_count += token_counts[i]
+
+            else:
+                skip_count = generation_metrics['skip_count'].clone()
+                token_count = generation_metrics['token_count'].clone()
+
+        eval_run_start_time, shard_number, model_name, dataset_name = pickle_file_params
+        file_name = f'{model_name}_{dataset_name}_{eval_run_start_time}'
+        pickle_file_path = get_abs_path(["results", "test_runs", file_name])
+        
+        # Create the folder with the timestamp if it doesn't already exist
+        if not os.path.exists(pickle_file_path):
+            os.makedirs(pickle_file_path)
+        
+        # Save the file
+        with open(f'{pickle_file_path}/shard_{shard_number}.pkl', 'wb') as f:
+
+            gen_metrics_dict = {
+                "predictions": predictions,
+                "labels": labels,
+                "inputs": inputs,
+                "rouge_1_avg": r["rouge1"],
+                "rouge_2_avg": r["rouge2"],
+                "rouge_L_avg": r["rougeL"],
+                "rouge_1_ind": r_ind["rouge1"],
+                "rouge_2_ind": r_ind["rouge2"],
+                "rouge_L_ind": r_ind["rougeL"]
+            }
+
+            # Only add the skip percentages if the generation metrics are provided
+            if generation_metrics is not None:
+                gen_metrics_dict["layer_skip_percentages"] = np.array(free(skip_count) / free(token_count))
+
+            pickle.dump(gen_metrics_dict, f)
     
     #log examples for debugging
     examples = {}
@@ -90,9 +157,6 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
 
     if save_rouge:
         #save individual rouge scores, sequence length and hash of the prompt
-        r = rouge_score.compute(predictions=predictions, references=labels,
-                                use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
-                                use_aggregator=False)
         label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
         prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
         prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
@@ -102,9 +166,9 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
         df = pd.DataFrame(
             {
                 "hash": hashes,
-                "rouge1": r["rouge1"],
-                "rouge2": r["rouge2"],
-                "rougeL": r["rougeL"],
+                "rouge1": r_ind["rouge1"],
+                "rouge2": r_ind["rouge2"],
+                "rougeL": r_ind["rougeL"],
                 "label_length": label_lengths,
                 "prediction_length": prediction_lengths,
                 "prompt_length": prompt_lengths
@@ -114,16 +178,16 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False, samples_to_save = 20,
     return {k: round(v,4) for k,v in result.items()}
 
 
-def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids):
+def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruction_template_ids, response_template_ids, context_template=None):
     
     #Tokenize
     def tokenize_function(examples):
         prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
         #check if 'context' is in the datassetKeys 
-        if 'context' in DATASET_KEYS[dataset_name]:
+        if 'context' in DATASET_KEYS[dataset_name] and examples[DATASET_KEYS[dataset_name]['context']] is not None:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            prompts = list(map(lambda p,c: p + (context_template + c if len(c.strip()) > 0 else ''), prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         
@@ -155,10 +219,10 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         #### SAME AS tokenize_function ####
         prompts = examples[DATASET_KEYS[dataset_name]['prompt']]
         #check if 'context' is in the datassetKeys 
-        if 'context' in DATASET_KEYS[dataset_name]:
+        if 'context' in DATASET_KEYS[dataset_name] and examples[DATASET_KEYS[dataset_name]['context']] is not None:
             contexts = examples[DATASET_KEYS[dataset_name]['context']]
             #concatenate prompts and contexts efficiently using map
-            prompts = list(map(lambda x,y: x + '\n' + y, prompts, contexts))
+            prompts = list(map(lambda p,c: p + (context_template + c if len(c.strip()) > 0 else ''), prompts, contexts))
             
         responses = examples[DATASET_KEYS[dataset_name]['response']]
         
@@ -193,8 +257,9 @@ def tokenize_and_format_dataset(dataset, dataset_name, tokenizer, args, instruct
         
     tokenized_dataset_train = dataset['train'].map(tokenize_function, batched=True)
     tokenized_dataset_val = dataset['validation'].map(tokenize_function_eval, batched=True)
+    tokenized_dataset_test = dataset['test'].map(tokenize_function_eval, batched=True)
     
-    return tokenized_dataset_train, tokenized_dataset_val
+    return tokenized_dataset_train, tokenized_dataset_val, tokenized_dataset_test
   
 
 
@@ -354,8 +419,11 @@ class MetricsCallback(TensorBoardCallback):
             self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
         elif not dist.is_available():
             self.tb_writer.add_scalar(f'perc_skip_{phase}/avg', np.mean(cross_layer_avg_perc_skip), state.global_step)
-        self.model.flush_metrics(phase)
+        self.model.flush_train_val_metrics(phase)
 
+    # Access the model's generation metrics and reset them at the end of every evaluation phase
+    def on_evaluate(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+        self.model._init_generation_metrics()
 
 def get_tensorboard_training_layout(decoder: AdalasOPTDecoder):
     layout = {

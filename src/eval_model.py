@@ -49,16 +49,12 @@ def main():
         sep_token=sep_token
     )
 
-    #templates
-    instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-    response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
-
     #Dataset
     if args.tokenized_dataset_path is not None:
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.tokenized_dataset_path]))
 
     else:
-        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args, instruction_template_ids, response_template_ids)
+        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args)
 
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
@@ -108,9 +104,9 @@ def main():
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
 
     #Metrics
-    def compute_metrics(eval_pred):
-        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True,fname=current_time_str)
-
+    def compute_metrics(eval_pred, pickle_file_params=None):
+        return train_utils.compute_metrics(eval_pred, tokenizer, save_rouge=True,fname=current_time_str, pickle_file_params=pickle_file_params, generation_metrics=(adalas.model.decoder.generation_metrics if adalas_config.with_metrics else None))
+    
     #Training
     sft_config = SFTConfigGenerate(
         learning_rate = args.learning_rate,
@@ -129,6 +125,9 @@ def main():
         evaluation_strategy=args.eval_strategy,
         eval_steps=args.eval_steps,
         save_strategy=args.save_strategy,
+        save_steps=args.save_steps,
+        save_total_limit=args.save_total_limit,
+        load_best_model_at_end=args.load_best_model_at_end,
         include_inputs_for_metrics=True,
         eval_with_generate=True,
         max_new_tokens=args.max_new_tokens,
@@ -143,18 +142,37 @@ def main():
     summary_writer = SummaryWriter(sft_config.logging_dir + '/custom_scalars')
     summary_writer.add_custom_scalars(train_utils.get_tensorboard_training_layout(adalas.model.decoder))
     metrics_callback = train_utils.MetricsCallback(summary_writer, adalas.model.decoder)
-    trainer = SFTTrainerGenerate(
-        model=adalas,
-        args=sft_config,
-        train_dataset=tokenized_dataset['train'],
-        eval_dataset=tokenized_dataset['validation'],
-        tokenizer=tokenizer,
-        data_collator=collator,
-        compute_metrics=compute_metrics,
-        callbacks=[metrics_callback],
-    )
-    trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
-    trainer.evaluate()
+    
+    if args.testing_mode:
+        for i in range(args.num_test_shards):
+            test_shard = tokenized_dataset['test'].shard(args.num_test_shards, i)
+            trainer = SFTTrainerGenerate(
+                model=adalas,
+                args=sft_config,
+                train_dataset=tokenized_dataset['train'],
+                eval_dataset=test_shard,
+                tokenizer=tokenizer,
+                data_collator=collator,
+                compute_metrics=(lambda eval_pred: compute_metrics(
+                    eval_pred,
+                    pickle_file_params=(current_time_str, i, stripped_model_name, stripped_dataset_name))),
+                callbacks=[metrics_callback],
+            )
+            trainer.neftune_noise_alpha = None
+            trainer.evaluate()
+    else:
+        trainer = SFTTrainerGenerate(
+            model=adalas,
+            args=sft_config,
+            train_dataset=tokenized_dataset['train'],
+            eval_dataset=tokenized_dataset['validation'],
+            tokenizer=tokenizer,
+            data_collator=collator,
+            compute_metrics=compute_metrics,
+            callbacks=[metrics_callback],
+        )
+        trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
+        trainer.evaluate()
 
 
 if __name__ == "__main__":

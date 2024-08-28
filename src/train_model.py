@@ -48,17 +48,13 @@ def main():
         padding_side='left', use_fast=False, 
         sep_token=sep_token
         )
-    
-    #templates
-    instruction_template_ids = tokenizer(args.instruction_template,add_special_tokens=False) ['input_ids'] + [tokenizer.sep_token_id]
-    response_template_ids = tokenizer(args.response_template,add_special_tokens=False)['input_ids'] + [tokenizer.sep_token_id]
 
     #Dataset
     if args.tokenized_dataset_path is not None:
         tokenized_dataset = load_from_disk(get_abs_path(['data','datasets',args.tokenized_dataset_path]))
 
     else:
-        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args, instruction_template_ids, response_template_ids)
+        tokenized_dataset = DATASET_KEYS[dataset_name]["prepare_fnc"](tokenizer, args)
 
         if args.save_dataset_dir is not None and rank == 0:
             tokenized_dataset.save_to_disk(get_abs_path(['data','datasets',args.save_dataset_dir]))
@@ -80,7 +76,7 @@ def main():
         adalas_config.skip_prompt = args.skip_prompt
         adalas_config.sep_token_id = tokenizer.sep_token_id
         adalas = AdalasOPTForCausalLM.from_pretrained(get_abs_path([model_name]),config=adalas_config)
-        print(f"Loading model from {model_name}. Overwriting with args")
+        print(f"Loading model from {model_name}. Model config will be overwritten")
     else:
         propagation_config = args.prop_config
         adalas_config = AdalasOPTConfig.from_pretrained(model_name)
@@ -99,8 +95,8 @@ def main():
         lora_conf = LoraConfig(r=args.lora_rank, lora_alpha=args.lora_alpha,
                                lora_dropout=args.lora_dropout, task_type=TaskType.CAUSAL_LM,
                                target_modules=['k_proj', 'v_proj', 'q_proj', 'lm_head'])
-
         adalas = get_peft_model(adalas, lora_conf)
+
     stripped_model_name = model_name.split('/')[-1]
     stripped_dataset_name = dataset_name.split('/')[-1]
     if args.ddp:
@@ -108,7 +104,6 @@ def main():
     time = datetime.now()
     current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
-
 
     if adalas_config.propagation_config.propagation_mode == PropagationMode.STATIC_EE and adalas_config.propagation_config.freeze_subsequent:
         freeze_top_decoder_layers(adalas, ['lm_head'],
@@ -121,6 +116,7 @@ def main():
         learning_rate = args.learning_rate,
         packing=False, 
         output_dir=get_abs_path(['results', output_dir_name]),
+        #output_dir=f'/media/joud/Elements/{output_dir_name}',
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
         gradient_accumulation_steps= args.gradient_accumulation_steps,
@@ -134,6 +130,9 @@ def main():
         evaluation_strategy=args.eval_strategy,
         eval_steps=args.eval_steps, 
         save_strategy=args.save_strategy,
+        save_steps=args.save_steps,
+        save_total_limit=args.save_total_limit,
+        load_best_model_at_end=args.load_best_model_at_end,
         include_inputs_for_metrics=True,
         eval_with_generate=True,
         max_new_tokens=args.max_new_tokens,
