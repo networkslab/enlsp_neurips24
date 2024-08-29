@@ -54,22 +54,33 @@ class StaticEEPropagationConfig(PropagationConfig):
                 'freeze_subsequent': self.freeze_subsequent}
     
 class RandomForBudgetPropagationConfig(PropagationConfig):
-    def __init__(self, budget: int):
+    def __init__(self, budget: int, enforce_layer_1=False):
         super().__init__(PropagationMode.RANDOM_FOR_BUDGET)
         self.budget = budget
+        self.enforce_layer_1 = enforce_layer_1
         self.controller_type = ControllerType.STATIC # use a bunch of static controllers based on the selected layers.
 
     def generate_random_route(self, total_num_layers: int) -> list[bool]:
         '''generates a random route for the given budget. 1 is a selected layer, 0 is a skipped layer.'''
         assert self.budget <= total_num_layers, 'Budget should be greater or equal to total number of layers'
-        executed_layers = np.ones(self.budget)
-        skipped_layers = np.zeros(total_num_layers - self.budget)
-        concat_layers = np.concatenate([executed_layers, skipped_layers])
-        return np.random.permutation(concat_layers)
+        if self.enforce_layer_1:
+            executed_layers = np.ones(self.budget-1) #reserve one executed layer for layer 1
+            skipped_layers = np.zeros(total_num_layers - self.budget)
+            concat_layers = np.concatenate([executed_layers, skipped_layers])
+            permuted_layers = np.random.permutation(concat_layers)
+            permuted_layers = np.concatenate([np.ones(1), permuted_layers])
+        else:
+            executed_layers = np.ones(self.budget)
+            skipped_layers = np.zeros(total_num_layers - self.budget)
+            concat_layers = np.concatenate([executed_layers, skipped_layers])
+            permuted_layers = np.random.permutation(concat_layers)
+        print(permuted_layers)
+        return permuted_layers
 
     def to_dict(self):
         return {'propagation_mode': self.propagation_mode.value,
-                'budget': self.budget}
+                'budget': self.budget,
+               'enforce_layer_1': self.enforce_layer_1}
 
 class StochasticDropoutPropagationConfig(PropagationConfig):
     def __init__(self, skip_probs: List[float]):
