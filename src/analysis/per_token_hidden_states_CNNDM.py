@@ -52,7 +52,7 @@ def get_hidden_states(dataset,checkpoint,args,rank):
     
     batch_size = args.batch_size
     
-    dataset = dataset.remove_columns(["id","article","highlights"])
+    dataset = dataset.remove_columns(['instruction', 'input', 'output', 'text'])
     
     #get dataloader
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
@@ -153,7 +153,7 @@ def run_inference(rank,world_size,dataset_dir,checkpoint,folderName,args):
     #get validation data
     #load dataset
     dataset = datasets.load_from_disk(dataset_dir)
-    dataset_val = dataset['validation']
+    dataset_val = dataset['test']
     #shard dataset into world_size parts, and only use the rank-th part
     dataset_val = dataset_val.shard(num_shards=world_size,index=rank,contiguous=True)
     
@@ -230,7 +230,7 @@ def main():
     
     
     #save labels to file
-    np.save(get_abs_path([model_path]) + folderName + '/' + 'eval_labels_np.npy',final_labels_np)
+    np.save(get_abs_path([model_path]) + folderName + '/' + 'test_labels_np.npy',final_labels_np)
     
     #post-processing for hidden states
     
@@ -240,7 +240,7 @@ def main():
     #     final_hidden_state_np[i] = raw_final_hidden_state_np[i][mask]
         
     #save results to file
-    np.save(get_abs_path([model_path]) + folderName + '/' + 'eval_hidden_state_np.npy',raw_final_hidden_state_np)
+    np.save(get_abs_path([model_path]) + folderName + '/' + 'test_hidden_state_np.npy',raw_final_hidden_state_np)
     
     #delete temporary files
     for i in range(world_size):

@@ -74,7 +74,6 @@ class RandomForBudgetPropagationConfig(PropagationConfig):
             skipped_layers = np.zeros(total_num_layers - self.budget)
             concat_layers = np.concatenate([executed_layers, skipped_layers])
             permuted_layers = np.random.permutation(concat_layers)
-        print(permuted_layers)
         return permuted_layers
 
     def to_dict(self):
