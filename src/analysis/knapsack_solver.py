@@ -39,11 +39,6 @@ class KnapsackSolver:
         #store the results
         for i in range(self.shard_size):
             self.dp_mat[i], self.indices_mat[i] = return_dict[i]
-        # return_dict = {}
-        # for i in range(self.shard_size):
-        #     self.shard_solve(i, return_dict)
-        # for i in range(self.shard_size):
-        #     self.dp_mat[i], self.indices_mat[i] = return_dict[i]
             
             
         
@@ -62,10 +57,6 @@ class KnapsackSolver:
         
 
     def shard_solve(self, s_rank, return_dict):
-        """:param max_cap: maximum capacity over the entire dataset (the knapsack capacity). Should be an int for
-        instance 3000 x max_layer
-        values (3000 x 4) are assumed to be sorted in decreasing order across the columns
-        """
 
         dp_mat = np.zeros((self.num_groups[s_rank], self.max_caps[s_rank] + 1),dtype=np.float32) - np.inf
         indices_mat = np.zeros((self.num_groups[s_rank], self.max_caps[s_rank] + 1),dtype=int) #keep track of the weights of the items that were chosen
@@ -121,15 +112,6 @@ class KnapsackSolver:
                 current_weight -= self.weights_ds[i][g][idx]
         return chosen_items
     
-    # def shard_reconstruct_chosen_items(self,chosen_cap: int):
-    #     #reconstruct the items chosen as a list
-    #     chosen_items = []
-    #     current_weight = chosen_cap
-    #     for g in range(self.num_groups - 1, -1, -1):
-    #         chosen_items.insert(0, self.weight_mat[g][current_weight])
-    #         current_weight -= self.weight_mat[g][current_weight]
-        
-    #     return chosen_items
 
 
 
