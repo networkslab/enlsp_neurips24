@@ -195,10 +195,8 @@ def main():
     os.makedirs(get_abs_path([model_path]) + folderName,exist_ok=True)
     
     #torch multiprocessing start method
-    # manager = mp.Manager()
-    # result_queue = manager.Queue()
     mp.spawn(run_inference, args=(world_size,dataset_path,model_path,folderName,args), nprocs=world_size, join=True)
-    #run_inference(0,world_size,dataset_path,model_path,args)
+
     
     #post-join code
     print("Inference completed for all ranks. Aggregating results...")
@@ -232,12 +230,7 @@ def main():
     #save labels to file
     np.save(get_abs_path([model_path]) + folderName + '/' + 'test_labels_np.npy',final_labels_np)
     
-    #post-processing for hidden states
     
-    # #mask to remove pad tokens
-    # final_hidden_state_np = np.zeros((raw_final_hidden_state_np.shape[0],final_labels_np.shape[0],raw_final_hidden_state_np.shape[2]),dtype=np.float16)
-    # for i in range(final_hidden_state_np.shape[0]):
-    #     final_hidden_state_np[i] = raw_final_hidden_state_np[i][mask]
         
     #save results to file
     np.save(get_abs_path([model_path]) + folderName + '/' + 'test_hidden_state_np.npy',raw_final_hidden_state_np)
