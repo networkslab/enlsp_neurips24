@@ -152,7 +152,7 @@ def main():
         compute_metrics=compute_metrics,
         callbacks=[metrics_callback],
     )
-    trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
+    trainer.neftune_noise_alpha = None # temporary fix due to HF bug
     trainer.train() # make sure there are trainable components, otherwise the backprop will fail.
     # trainer.evaluate()
 

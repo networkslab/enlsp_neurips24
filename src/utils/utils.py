@@ -18,7 +18,7 @@ def fix_the_seed(seed):
 
 def get_path_to_project_root():
     cwd = os.getcwd()
-    root_abs_path_index = cwd.split("/").index("ADALaS")
+    root_abs_path_index = cwd.split("/").index("enlsp_neurips24")
     return "/".join(os.getcwd().split("/")[:root_abs_path_index + 1])
 
 def get_abs_path(paths_strings):

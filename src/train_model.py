@@ -150,7 +150,7 @@ def main():
         data_collator=collator,
         compute_metrics=compute_metrics,
     )
-    trainer.neftune_noise_alpha = None # temporary fix https://github.com/huggingface/trl/issues/1837
+    trainer.neftune_noise_alpha = None # temporary fix due to HF bug
     trainer.train()
 
 

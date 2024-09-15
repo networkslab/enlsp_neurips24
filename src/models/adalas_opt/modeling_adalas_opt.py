@@ -244,7 +244,7 @@ class AdalasOPTDecoder(OPTDecoder):
                 next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
             if output_attentions:
-                #TODO: implement this - JOUD
+                # TODO implement this following above logic if needed with layer skipping.
                 # if should_skip_layer:
                 #     label_mask = (torch.cumsum(input_ids == separation_token, 1) > 1)[:, None, :, None] # 1 where label is
                 #     previous_self_attn = all_self_attns[-1]
