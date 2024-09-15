@@ -90,12 +90,16 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False,
         r_ind = rouge_score.compute(predictions=predictions, references=labels,
                                     use_stemmer=False,rouge_types=["rouge1", "rouge2", "rougeL"],
                                     use_aggregator=False)
+        label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
+        prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
+        prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
 
+   
+    is_process_zero = (dist.get_rank() == 0) if (dist.is_available() and dist.is_initialized()) else True
     # If pickle file name is provided, save the predictions, labels, inputs, and rouge scores to a pickle file
     # Target folder: Results/test_runs
     # File name: pickle_file_params in the format (eval_run_start_time, shard_number, model_name, dataset_name)
     if pickle_file_params is not None:
-
         if generation_metrics is not None:
             if dist.is_available() and dist.is_initialized():
                     
@@ -104,7 +108,7 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False,
                     token_counts = [generation_metrics['token_count'].clone() for _ in range(dist.get_world_size())]
                     dist.all_gather(skip_counts, generation_metrics['skip_count'])
                     dist.all_gather(token_counts, generation_metrics['token_count']) 
-
+                    
                     # Merge the distributed elements
                     skip_count = torch.zeros_like(skip_counts[0])
                     token_count = torch.tensor(0).to(skip_count.device)
@@ -122,28 +126,32 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False,
         
         # Create the folder with the timestamp if it doesn't already exist
         if not os.path.exists(pickle_file_path):
-            os.makedirs(pickle_file_path)
+            os.makedirs(pickle_file_path, exist_ok=True)
         
-        # Save the file
-        with open(f'{pickle_file_path}/shard_{shard_number}.pkl', 'wb') as f:
-
-            gen_metrics_dict = {
-                "predictions": predictions,
-                "labels": labels,
-                "inputs": inputs,
-                "rouge_1_avg": r["rouge1"],
-                "rouge_2_avg": r["rouge2"],
-                "rouge_L_avg": r["rougeL"],
-                "rouge_1_ind": r_ind["rouge1"],
-                "rouge_2_ind": r_ind["rouge2"],
-                "rouge_L_ind": r_ind["rougeL"]
-            }
-
-            # Only add the skip percentages if the generation metrics are provided
-            if generation_metrics is not None:
-                gen_metrics_dict["layer_skip_percentages"] = np.array(free(skip_count) / free(token_count))
-
-            pickle.dump(gen_metrics_dict, f)
+        # Save the file if is_process_zero
+        if is_process_zero:
+            with open(f'{pickle_file_path}/shard_{shard_number}.pkl', 'wb') as f:
+    
+                gen_metrics_dict = {
+                    "predictions": predictions,
+                    "labels": labels,
+                    "inputs": inputs,
+                    "rouge_1_avg": r["rouge1"],
+                    "rouge_2_avg": r["rouge2"],
+                    "rouge_L_avg": r["rougeL"],
+                    "rouge_1_ind": r_ind["rouge1"],
+                    "rouge_2_ind": r_ind["rouge2"],
+                    "rouge_L_ind": r_ind["rougeL"],
+                    "label_length": label_lengths,
+                    "prediction_length": prediction_lengths,
+                    "prompt_length": prompt_lengths
+                }
+    
+                # Only add the skip percentages if the generation metrics are provided
+                if generation_metrics is not None:
+                    gen_metrics_dict["layer_skip_percentages"] = list(np.array(free(skip_count) / free(token_count))) #pickle does not support np
+    
+                pickle.dump(gen_metrics_dict, f)
     
     #log examples for debugging
     examples = {}
@@ -157,9 +165,6 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False,
 
     if save_rouge:
         #save individual rouge scores, sequence length and hash of the prompt
-        label_lengths = [label.size - np.count_nonzero(label == tokenizer.pad_token_id) for label in label_ids]
-        prediction_lengths = [prediction.size-np.count_nonzero(prediction == tokenizer.pad_token_id) for prediction in prediction_ids]
-        prompt_lengths = [input_ids[i].size - np.count_nonzero(input_ids[i] == tokenizer.pad_token_id) - label_lengths[i] for i in range(len(input_ids))]
         #hash the prompt
         hashes = [zlib.adler32(input.encode('utf-8')) for input in inputs] 
         #save to pandas dataframe
@@ -173,8 +178,9 @@ def compute_metrics(eval_pred,tokenizer, save_rouge=False,
                 "prediction_length": prediction_lengths,
                 "prompt_length": prompt_lengths
             })
-        #save to csv
-        df.to_csv(f'{get_abs_path(["logs"])}/hashed_rouge_scores_{fname}.csv', index=False)
+        #save to csv only if is_process_zero
+        if is_process_zero:
+            df.to_csv(f'{get_abs_path(["logs"])}/hashed_rouge_scores_{fname}.csv', index=False)
     return {k: round(v,4) for k,v in result.items()}
 
 

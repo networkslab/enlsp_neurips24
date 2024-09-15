@@ -33,13 +33,14 @@ class PropagationConfig:
 
 
 class StaticSkipPropagationConfig(PropagationConfig):
-    def __init__(self, skip_layers: List[int]):
+    def __init__(self, skip_layers: List[int], freeze_skipped = False):
         super().__init__(PropagationMode.STATIC_SKIP)
         self.skip_layers = skip_layers
+        self.freeze_skipped = freeze_skipped
         self.controller_type = ControllerType.STATIC
 
     def to_dict(self):
-        return {'propagation_mode': self.propagation_mode.value, 'skip_layers': self.skip_layers}
+        return {'propagation_mode': self.propagation_mode.value, 'skip_layers': self.skip_layers, 'freeze_skipped': self.freeze_skipped}
 
 class StaticEEPropagationConfig(PropagationConfig):
     def __init__(self, early_exit_layer: int, freeze_subsequent = True):

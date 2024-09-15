@@ -54,6 +54,25 @@ def freeze_network(network, excluded_submodules: list[str], verbose = False):
         print('Successfully froze network: from {} to {} trainable params.'.format(
             total_num_parameters, num_trainable_params))
 
+def freeze_skipped_decoder_layers(network, excluded_submodules: list[str], skipped_layers, verbose = False):
+    '''network should have an attribute called model, representing the backbone and this backbone should have a decoder attr.'''
+    model_parameters = filter(lambda p: p.requires_grad, network.parameters())
+    total_num_parameters = sum([np.prod(p.size()) for p in model_parameters])
+    freeze_network(network, excluded_submodules, False)
+
+    for layer_idx, decoder_layer in enumerate(network.model.decoder.layers):
+        if layer_idx not in skipped_layers:
+            if verbose:
+                print(f"Unfreezing decoder layer {layer_idx}")
+            for param in decoder_layer.parameters():
+                param.requires_grad = True
+    trainable_parameters = filter(lambda p: p.requires_grad,
+                                  network.parameters())
+    num_trainable_params = sum(
+        [np.prod(p.size()) for p in trainable_parameters])
+    print('Successfully froze network: from {} to {} trainable params.'.format(
+        total_num_parameters, num_trainable_params))
+
 def freeze_top_decoder_layers(network,
                               excluded_submodules: list[str],
                               last_unfrozen_layer, verbose = False):

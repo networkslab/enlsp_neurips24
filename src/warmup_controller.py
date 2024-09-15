@@ -3,6 +3,7 @@ import os
 import transformers
 from transformers import AddedToken
 from transformers import AutoModelForCausalLM, AutoTokenizer, IntervalStrategy
+from peft import LoraConfig, TaskType, get_peft_model, LoftQConfig
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -14,7 +15,7 @@ from time import sleep
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path, fix_the_seed, get_args
+from src.utils.utils import get_abs_path, fix_the_seed, get_args, freeze_top_decoder_layers, freeze_skipped_decoder_layers
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
@@ -64,7 +65,7 @@ def main():
     collator = DataCollatorForSeq2SeqGenerate(tokenizer=tokenizer)
 
     #sleep to stagger the model loading, in order to avoid high peak RAM use
-    sleep(rank*20)
+    sleep(rank*5)
     print(f'rank {rank} starting model loading')
 
     #Model
@@ -88,11 +89,16 @@ def main():
     if args.fp16:
         adalas = adalas.to(torch.float16)
 
-    
-    adalas.freeze_backbone(freeze_head=False)
+    #adalas.freeze_backbone(freeze_head=False) Do not freeze backbone
     if args.save_model_pretrain_dir is not None and rank == 0:
         tokenizer.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
         adalas.save_pretrained(get_abs_path(['results','pre_train',args.save_model_pretrain_dir]))
+    if args.with_lora:
+        lora_conf = LoraConfig(r=args.lora_rank, lora_alpha=args.lora_alpha,
+                               lora_dropout=args.lora_dropout, task_type=TaskType.CAUSAL_LM,
+                               target_modules=['k_proj', 'v_proj', 'q_proj', 'lm_head'])
+
+        adalas = get_peft_model(adalas, lora_conf)
 
     if args.load_model_from_disk:
         stripped_model_name = model_name.split('/')[1]
@@ -104,7 +110,13 @@ def main():
     time = datetime.now()
     current_time_str = time.strftime("%d-%m_%H-%M-%S")
     output_dir_name = f'{stripped_model_name}/{stripped_dataset_name}_{current_time_str}'
-
+    
+    if adalas_config.propagation_config.propagation_mode == PropagationMode.STATIC_EE and adalas_config.propagation_config.freeze_subsequent:
+        freeze_top_decoder_layers(adalas, ['lm_head'],
+                                  last_unfrozen_layer=adalas_config.propagation_config.early_exit_layer, verbose=True)
+        
+    if adalas_config.propagation_config.propagation_mode == PropagationMode.STATIC_SKIP and adalas_config.propagation_config.freeze_skipped:
+        freeze_skipped_decoder_layers(adalas, ['lm_head'], adalas_config.propagation_config.skip_layers, verbose=True)
     # Metrics
     def compute_metrics(eval_pred):
         return train_utils.compute_metrics(eval_pred, tokenizer)

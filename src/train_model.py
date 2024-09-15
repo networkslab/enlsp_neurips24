@@ -13,7 +13,7 @@ from time import sleep
 
 from src.models.adalas_opt.config_adalas_opt import AdalasOPTConfig, PropagationMode
 from src.models.adalas_opt.modeling_adalas_opt import AdalasOPTForCausalLM
-from src.utils.utils import get_abs_path, fix_the_seed, get_args, freeze_top_decoder_layers
+from src.utils.utils import get_abs_path, fix_the_seed, get_args, freeze_top_decoder_layers, freeze_skipped_decoder_layers
 from src.utils.train_utils import DataCollatorForSeq2SeqGenerate
 from src.training.sft_trainer_generate import SFTTrainerGenerate, SFTConfigGenerate
 import src.utils.train_utils as train_utils
@@ -108,6 +108,10 @@ def main():
     if adalas_config.propagation_config.propagation_mode == PropagationMode.STATIC_EE and adalas_config.propagation_config.freeze_subsequent:
         freeze_top_decoder_layers(adalas, ['lm_head'],
                                   last_unfrozen_layer=adalas_config.propagation_config.early_exit_layer, verbose=True)
+        
+    if adalas_config.propagation_config.propagation_mode == PropagationMode.STATIC_SKIP and adalas_config.propagation_config.freeze_skipped:
+        freeze_skipped_decoder_layers(adalas, ['lm_head'], adalas_config.propagation_config.skip_layers, verbose=True)
+        
     #Metrics
     def compute_metrics(eval_pred):
         return train_utils.compute_metrics(eval_pred, tokenizer)
